@@ -14,4 +14,10 @@ type LoosePart struct {
 
 func (l *LoosePart) Draw() {
 	drawPart(l.Position, l.Rotation, l.Part)
+
+	// Debris is destructible, so show a shrinking health bar once it's been chipped
+	// — the same readout ship parts get (see Ship.Draw).
+	if maxHealth := partSpecs[l.Part.Type].health; l.Part.Health < maxHealth {
+		drawHealthBar(l.Position, l.Part.Health/maxHealth)
+	}
 }

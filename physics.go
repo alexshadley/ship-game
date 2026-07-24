@@ -36,10 +36,11 @@ const (
 const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
-	// collisionLoose has no damage handler registered against any type, so loose
-	// parts bounce off everything via the solver but never deal or take damage.
-	// collisionPlayer takes impact damage from asteroids and ships (see NewPhysics)
-	// but deals none.
+	// collisionLoose is free-floating debris: it both takes and deals collision
+	// damage (against ships, asteroids, other debris, and the astronaut) and is
+	// culled once battered to zero health — see the handlers in NewPhysics.
+	// collisionPlayer takes impact damage from asteroids, ships, and debris but
+	// deals none.
 	collisionLoose  cp.CollisionType = 3
 	collisionPlayer cp.CollisionType = 4
 )
@@ -153,39 +154,64 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		asteroidBodies: asteroidBodies,
 	}
 
-	// The solver handles the bounce; this handler only reads the impulse back to
-	// apply damage to the struck part.
-	handler := space.NewCollisionHandler(collisionShip, collisionAsteroid)
-	handler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+	// The solver handles every bounce; these PostSolve handlers only read the
+	// impulse back to apply damage to the parts (and astronaut) involved.
+
+	// Ship parts chip against asteroids.
+	shipAsteroid := space.NewCollisionHandler(collisionShip, collisionAsteroid)
+	shipAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		shipShape, _ := arb.Shapes()
-		if p.playerInvincible(p.shipBodyFor(shipShape.Body())) {
-			return
-		}
-		if part, ok := shipShape.UserData.(*Part); ok {
-			damagePart(part, arb.TotalImpulse().Length())
-		}
+		p.damageShipShapePart(shipShape, arb.TotalImpulse().Length())
 	}
 
-	shipHandler := space.NewCollisionHandler(collisionShip, collisionShip)
-	shipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+	// Ramming: both ships' struck parts take the impact.
+	shipShip := space.NewCollisionHandler(collisionShip, collisionShip)
+	shipShip.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		a, b := arb.Shapes()
 		impulse := arb.TotalImpulse().Length()
-		if part, ok := a.UserData.(*Part); ok && !p.playerInvincible(p.shipBodyFor(a.Body())) {
-			damagePart(part, impulse)
-		}
-		if part, ok := b.UserData.(*Part); ok && !p.playerInvincible(p.shipBodyFor(b.Body())) {
-			damagePart(part, impulse)
-		}
+		p.damageShipShapePart(a, impulse)
+		p.damageShipShapePart(b, impulse)
 	}
 
-	// The astronaut takes impact damage from hard knocks against asteroids and
-	// ships while out on a spacewalk; the solver still handles the bounce.
+	// Loose debris is a hazard in its own right: it chips ship parts, asteroid
+	// impacts chip it, and it grinds against other debris. Each of these damages
+	// the debris too, so a battered chunk eventually breaks apart (culled once its
+	// health hits zero in cullDeadLooseParts).
+	looseAsteroid := space.NewCollisionHandler(collisionLoose, collisionAsteroid)
+	looseAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		looseShape, _ := arb.Shapes()
+		damageShapePart(looseShape, arb.TotalImpulse().Length())
+	}
+	looseShip := space.NewCollisionHandler(collisionLoose, collisionShip)
+	looseShip.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		looseShape, shipShape := arb.Shapes()
+		impulse := arb.TotalImpulse().Length()
+		damageShapePart(looseShape, impulse)
+		p.damageShipShapePart(shipShape, impulse)
+	}
+	looseLoose := space.NewCollisionHandler(collisionLoose, collisionLoose)
+	looseLoose.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		a, b := arb.Shapes()
+		impulse := arb.TotalImpulse().Length()
+		damageShapePart(a, impulse)
+		damageShapePart(b, impulse)
+	}
+
+	// The astronaut takes impact damage from hard knocks against asteroids, ships,
+	// and loose debris while out on a spacewalk; the solver still handles the
+	// bounce. Debris shrugs off the featherweight astronaut (no damageShapePart on
+	// its side), so nudging salvage never wrecks it — only shots and heavier
+	// impacts break debris apart.
 	playerAsteroid := space.NewCollisionHandler(collisionPlayer, collisionAsteroid)
 	playerAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
 	}
 	playerShipHandler := space.NewCollisionHandler(collisionPlayer, collisionShip)
 	playerShipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
+	}
+	loosePlayer := space.NewCollisionHandler(collisionLoose, collisionPlayer)
+	loosePlayer.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
 	}
 
@@ -209,6 +235,24 @@ func damagePart(part *Part, impulse float64) {
 	if part.Health < 0 {
 		part.Health = 0
 	}
+}
+
+// damageShapePart applies collision damage to the part behind shape, if any. Both
+// ship parts and loose debris stash their *Part in the shape's UserData, so this
+// works for either.
+func damageShapePart(shape *cp.Shape, impulse float64) {
+	if part, ok := shape.UserData.(*Part); ok {
+		damagePart(part, impulse)
+	}
+}
+
+// damageShipShapePart is damageShapePart for a ship shape, skipping the hit when
+// the shape belongs to the player's ship while debug god mode is on.
+func (p *Physics) damageShipShapePart(shape *cp.Shape, impulse float64) {
+	if p.playerInvincible(p.shipBodyFor(shape.Body())) {
+		return
+	}
+	damageShapePart(shape, impulse)
 }
 
 // ResolveProjectiles tests every projectile against every ship part and asteroid,
@@ -243,6 +287,26 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 			}
 			return true
 		}
+	}
+	// Loose debris is destructible too: a hit chips it and, if that finishes it off,
+	// removes it on the spot (we're outside space.Step here, so mutating is safe).
+	for i, l := range p.looseParts {
+		// Un-rotate the hit into the debris's local frame and test its cell box, so a
+		// tumbling part is hit where it actually is (mirrors GrabLoosePart).
+		sin := float32(math.Sin(float64(l.Rotation)))
+		cos := float32(math.Cos(float64(l.Rotation)))
+		dx := pr.Position.X - l.Position.X
+		dy := pr.Position.Y - l.Position.Y
+		lx := dx*cos + dy*sin
+		ly := -dx*sin + dy*cos
+		if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
+			continue
+		}
+		l.Part.Health -= projectileDamage
+		if l.Part.Health <= 0 {
+			p.removeLoosePartAt(i)
+		}
+		return true
 	}
 	for _, a := range p.asteroids {
 		dx := pr.Position.X - a.Position.X
@@ -405,6 +469,8 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		l.Velocity = rl.NewVector2(float32(lvel.X), float32(lvel.Y))
 		l.Rotation = float32(lb.Angle())
 	}
+	// Sweep up any debris ground down to zero health by this step's collisions.
+	p.cullDeadLooseParts()
 
 	if p.playerBody != nil && p.player != nil {
 		ppos := p.playerBody.Position()
@@ -514,6 +580,7 @@ func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel
 	shape.SetCollisionType(collisionLoose)
 	shape.SetElasticity(shipElasticity)
 	shape.SetFriction(0.4)
+	shape.UserData = part
 
 	p.looseParts = append(p.looseParts, &LoosePart{
 		Part:     part,
@@ -522,6 +589,28 @@ func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel
 		Rotation: rotation,
 	})
 	p.looseBodies = append(p.looseBodies, body)
+}
+
+// removeLoosePartAt deletes the loose part at index i, removing its body and
+// shape from the space and dropping it from the parallel loose slices. Shared by
+// GrabLoosePart (picked up) and cullDeadLooseParts (smashed apart).
+func (p *Physics) removeLoosePartAt(i int) {
+	body := p.looseBodies[i]
+	body.EachShape(func(s *cp.Shape) { p.space.RemoveShape(s) })
+	p.space.RemoveBody(body)
+	p.looseParts = append(p.looseParts[:i], p.looseParts[i+1:]...)
+	p.looseBodies = append(p.looseBodies[:i], p.looseBodies[i+1:]...)
+}
+
+// cullDeadLooseParts removes any debris whose health has run out (shot or ground
+// down by repeated impacts). Iterates back-to-front so removals don't shift the
+// indices still to be checked. Must run outside space.Step.
+func (p *Physics) cullDeadLooseParts() {
+	for i := len(p.looseParts) - 1; i >= 0; i-- {
+		if p.looseParts[i].Part.Health <= 0 {
+			p.removeLoosePartAt(i)
+		}
+	}
 }
 
 // scavengePartTypes are the part types scattered as free debris for the player to
@@ -566,12 +655,9 @@ func (p *Physics) GrabLoosePart(wp rl.Vector2) *Part {
 			continue
 		}
 
-		body := p.looseBodies[i]
-		body.EachShape(func(s *cp.Shape) { p.space.RemoveShape(s) })
-		p.space.RemoveBody(body)
-		p.looseParts = append(p.looseParts[:i], p.looseParts[i+1:]...)
-		p.looseBodies = append(p.looseBodies[:i], p.looseBodies[i+1:]...)
-		return l.Part
+		part := l.Part
+		p.removeLoosePartAt(i)
+		return part
 	}
 	return nil
 }
