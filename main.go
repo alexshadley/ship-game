@@ -66,7 +66,7 @@ func main() {
 	// enemySpawnInterval seconds.
 	var enemies []*Ship
 	spawnEnemy := func() {
-		e, ai := SpawnEnemy(ship)
+		e, ai := SpawnEnemy(ship, asteroids)
 		physics.AddShip(e, ai)
 		enemies = append(enemies, e)
 	}
