@@ -154,6 +154,17 @@ func main() {
 			projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
 			particles.Update(dt)
 
+			// physics.Update drops destroyed ships from the simulation; drop them
+			// from our enemy list too so they stop drawing and vanish from the
+			// minimap.
+			liveEnemies := enemies[:0]
+			for _, e := range enemies {
+				if !e.Destroyed {
+					liveEnemies = append(liveEnemies, e)
+				}
+			}
+			enemies = liveEnemies
+
 			live := projectiles[:0]
 			for _, pr := range projectiles {
 				pr.Update(dt)
