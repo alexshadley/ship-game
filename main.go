@@ -210,9 +210,6 @@ func main() {
 			}
 			// Exhaust draws before the ship so plumes read as coming out from under it.
 			particles.Draw()
-			for _, pr := range projectiles {
-				pr.Draw()
-			}
 			for _, e := range enemies {
 				e.Draw()
 			}
@@ -220,6 +217,10 @@ func main() {
 				l.Draw()
 			}
 			ship.Draw()
+			// Projectiles draw after the ships so they read as flying over them.
+			for _, pr := range projectiles {
+				pr.Draw()
+			}
 			if spacewalking {
 				// The repair beam draws under the astronaut so it reads as coming from
 				// the suit rather than over it.
