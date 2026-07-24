@@ -294,18 +294,40 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 }
 
 // drawHealthBar stays screen-aligned rather than rotating with the ship so it
-// always reads cleanly.
+// always reads cleanly. The bar shrinks with health and also shifts from green
+// to red so it stays legible when zoomed out.
 func drawHealthBar(center rl.Vector2, frac float32) {
 	if frac < 0 {
 		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
 	}
 	const barWidth int32 = cellSize * 4 / 5
 	const barHeight int32 = 4
 	x := int32(center.X) - barWidth/2
 	y := int32(center.Y-cellSize*0.5) - barHeight - 2
-	rl.DrawRectangle(x, y, barWidth, barHeight, rl.Maroon)
-	rl.DrawRectangle(x, y, int32(float32(barWidth)*frac), barHeight, rl.Lime)
-	rl.DrawRectangleLines(x, y, barWidth, barHeight, rl.Black)
+	rl.DrawRectangle(x, y, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
+}
+
+// healthColor blends from red (frac 0) through yellow to green (frac 1).
+func healthColor(frac float32) rl.Color {
+	return rl.NewColor(
+		uint8(255*clamp01(2*(1-frac))),
+		uint8(255*clamp01(2*frac)),
+		0,
+		255,
+	)
+}
+
+func clamp01(v float32) float32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }
 
 func drawCell(center rl.Vector2, size, rotDeg float32, color rl.Color) {
