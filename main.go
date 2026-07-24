@@ -46,7 +46,7 @@ func main() {
 
 	// Camera for the game view. It starts zoomed out for piloting and eases toward
 	// spacewalkZoom while the pilot is outside. The offset centers the follow
-	// target on screen; the target is nudded up half a cell so the ship's body,
+	// target on screen; the target is nudged up half a cell so the ship's body,
 	// which now extends forward of the cockpit, reads as roughly centered.
 	camera := rl.Camera2D{
 		Target:   rl.NewVector2(0, -cellSize*0.5),
@@ -61,16 +61,25 @@ func main() {
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship, asteroids)
-
-	var projectiles []*Projectile
-	// Time until the cannons may fire again while Shift is held.
-	var fireCooldown float32
+	physics := NewPhysics(asteroids)
+	particles := NewParticleSystem()
 
 	// Spacewalk state: when spacewalking, the pilot is out of the ship as a
 	// free-floating astronaut (WASD to thrust) and the ship coasts uncontrolled.
+	// It's declared before wiring the player ship's controller, which reads the
+	// flag to know whether to accept keyboard input.
 	var player Player
 	spacewalking := false
+
+	// The player and the AI enemies are all run by the physics from Controls; only
+	// the source of those controls (keyboard vs. AI) differs.
+	physics.AddShip(ship, PilotInput{spacewalking: &spacewalking})
+	enemies, enemyAIs := DefaultEnemies(ship)
+	for i, e := range enemies {
+		physics.AddShip(e, enemyAIs[i])
+	}
+
+	var projectiles []*Projectile
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
@@ -89,22 +98,13 @@ func main() {
 			spacewalking = true
 		}
 
-		// The ship only takes control input while being piloted; the simulation
-		// runs regardless so the ship and asteroids keep drifting during a spacewalk.
-		physics.Update(float64(dt), !spacewalking)
-
-		// Hold Shift to fire the cannons on a fixed interval (piloting only).
-		// Releasing the key resets the cooldown so the first shot on the next press
-		// is immediate.
-		if !spacewalking && (rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)) {
-			fireCooldown -= dt
-			if fireCooldown <= 0 {
-				projectiles = append(projectiles, ship.FireCannons()...)
-				fireCooldown = cannonFireInterval
-			}
-		} else {
-			fireCooldown = 0
-		}
+		// Step the whole simulation. Every ship pulls its own Controls, thrusts and
+		// turns under the same physics, spawns exhaust for whatever it's firing, and
+		// any that fired their cannons return projectiles. While spacewalking the
+		// player ship's controller yields no input, so it simply coasts; the
+		// astronaut's body is driven from WASD inside the same step.
+		projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
+		particles.Update(dt)
 
 		// Advance projectiles and drop any that have expired.
 		live := projectiles[:0]
@@ -143,8 +143,13 @@ func main() {
 		for _, a := range asteroids {
 			a.Draw()
 		}
+		// Exhaust draws before the ship so plumes read as coming out from under it.
+		particles.Draw()
 		for _, pr := range projectiles {
 			pr.Draw()
+		}
+		for _, e := range enemies {
+			e.Draw()
 		}
 		ship.Draw()
 		if spacewalking {
@@ -163,7 +168,7 @@ func main() {
 				hint = "SHIFT: re-enter ship"
 			}
 		}
-		DrawMinimap(ship, asteroids, minimapPlayer)
+		DrawMinimap(ship, asteroids, enemies, minimapPlayer)
 		rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
 		rl.EndTextureMode()
 
@@ -172,5 +177,34 @@ func main() {
 		rl.ClearBackground(rl.Black)
 		rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
 		rl.EndDrawing()
+	}
+}
+
+// emitExhaust spawns exhaust particles for each engine and control thruster a
+// ship is firing this frame, mirroring its Controls: Thrust fires the engines and
+// Turn fires the control thrusters. It reads the same signals the physics uses to
+// move the ship, so any ship — player or AI — plumes exactly when it maneuvers.
+func emitExhaust(ship *Ship, controls Controls, particles *ParticleSystem) {
+	if controls.Thrust > 0 {
+		for _, src := range ship.EngineExhaustSources() {
+			for i := 0; i < engineParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, engineExhaustColor)
+			}
+		}
+	}
+
+	// Turn's sign picks which thrusters fire; zero (or A+D cancelling) plumes none.
+	turn := 0
+	if controls.Turn < 0 {
+		turn = -1
+	} else if controls.Turn > 0 {
+		turn = 1
+	}
+	if turn != 0 {
+		for _, src := range ship.ControlThrusterExhaustSources(turn) {
+			for i := 0; i < thrusterParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, thrusterExhaustColor)
+			}
+		}
 	}
 }
