@@ -250,13 +250,25 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	for _, sb := range p.ships {
 		controls := sb.controller.Controls(float32(dt))
 
-		force := cp.Vector{}
+		// Each engine pushes from its own cell along the axis opposite its facing, so
+		// an off-center engine layout yields a net torque and the ship rotates. Force
+		// and torque accumulate here (both are zeroed by the integrator each step) and
+		// the turn torque is added on top of whatever the engines contributed.
 		if controls.Thrust != 0 {
-			local := cp.Vector{X: 0, Y: -engineThrust * float64(sb.engines) * float64(controls.Thrust)}
-			force = sb.body.Rotation().Rotate(local)
+			for c, part := range sb.ship.Parts {
+				if part.Type != PartEngine {
+					continue
+				}
+				off := part.Facing.offset()
+				local := cp.Vector{
+					X: float64(-off.X) * engineThrust * float64(controls.Thrust),
+					Y: float64(-off.Y) * engineThrust * float64(controls.Thrust),
+				}
+				point := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
+				sb.body.ApplyForceAtLocalPoint(local, point)
+			}
 		}
-		sb.body.SetForce(force)
-		sb.body.SetTorque(thrusterTorque * float64(sb.thrusters) * float64(controls.Turn))
+		sb.body.SetTorque(sb.body.Torque() + thrusterTorque*float64(sb.thrusters)*float64(controls.Turn))
 		sb.controls = controls
 	}
 
