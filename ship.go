@@ -158,8 +158,7 @@ func (s *Ship) Draw() {
 			s.drawFacingIndicator(c, p.Facing, rl.DarkBlue)
 		case PartEngine:
 			s.drawFacingIndicator(c, p.Facing, rl.Red)
-		}
-		if p.Type == PartControlThruster {
+		case PartControlThruster:
 			s.drawControlThrusterNozzles(c, p.Facing)
 		}
 	}
@@ -203,30 +202,29 @@ func (s *Ship) drawFacingIndicator(c GridCoord, facing Facing, color rl.Color) {
 	rl.DrawTriangle(w[0], w[1], w[2], color)
 }
 
-// drawControlThrusterNozzles draws the two side plumes of a control thruster.
-// The thruster attaches along facing, so it fires along the perpendicular axis;
-// a small plume is drawn on each of those two sides.
+// drawControlThrusterNozzles draws a control thruster's two nozzles, one firing
+// to each side of its attachment axis. Like drawFacingIndicator, every offset is
+// kept within ±cellSize/2 so the thruster never draws outside its own cell.
 func (s *Ship) drawControlThrusterNozzles(c GridCoord, facing Facing) {
 	cx := float32(c.X) * cellSize
 	cy := float32(c.Y) * cellSize
 
-	// Unit thrust axis, perpendicular to the attachment direction.
+	// Thrust axis (perpendicular to the attachment side) and attachment axis, as
+	// unit steps in the local pixel frame. The two arrows point along ±thrust.
 	off := facing.offset()
-	px, py := float32(-off.Y), float32(off.X)
+	tx, ty := float32(-off.Y), float32(off.X) // thrust axis
+	ax, ay := float32(off.X), float32(off.Y)  // attachment axis (arrow base spread)
 
-	// A plume points outward along (sign*px, sign*py); its base spans the
-	// perpendicular of that, i.e. the attachment axis.
 	for _, sign := range []float32{1, -1} {
-		baseX := cx + sign*px*cellSize*0.5
-		baseY := cy + sign*py*cellSize*0.5
-		tip := s.worldPoint(baseX+sign*px*cellSize*0.5, baseY+sign*py*cellSize*0.5)
-		a := s.worldPoint(baseX-float32(off.X)*cellSize*0.22, baseY-float32(off.Y)*cellSize*0.22)
-		b := s.worldPoint(baseX+float32(off.X)*cellSize*0.22, baseY+float32(off.Y)*cellSize*0.22)
+		dx, dy := sign*tx, sign*ty
+		tip := s.worldPoint(cx+dx*cellSize*0.42, cy+dy*cellSize*0.42)
+		b1 := s.worldPoint(cx+dx*cellSize*0.15+ax*cellSize*0.16, cy+dy*cellSize*0.15+ay*cellSize*0.16)
+		b2 := s.worldPoint(cx+dx*cellSize*0.15-ax*cellSize*0.16, cy+dy*cellSize*0.15-ay*cellSize*0.16)
 		// Keep a consistent winding on both sides so neither gets back-face culled.
 		if sign > 0 {
-			rl.DrawTriangle(a, tip, b, rl.Violet)
+			rl.DrawTriangle(tip, b1, b2, rl.Violet)
 		} else {
-			rl.DrawTriangle(b, tip, a, rl.Violet)
+			rl.DrawTriangle(tip, b2, b1, rl.Violet)
 		}
 	}
 }
