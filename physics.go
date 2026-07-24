@@ -16,8 +16,9 @@ const (
 	// while A or D is held.
 	thrusterTorque = 90000.0
 	// spaceDamping is the fraction of a body's linear and angular velocity that
-	// survives each second, i.e. general drag. Below 1 the ship always coasts to
-	// a stop when unpowered.
+	// survives each second, i.e. general drag. It applies to every body in the
+	// space — ships, asteroids, and loose parts alike — so anything unpowered
+	// gradually coasts to a stop.
 	spaceDamping = 0.55
 
 	// shipElasticity and asteroidElasticity control how bouncy each body is in a
@@ -148,9 +149,8 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	// ship glides to a halt instead of drifting forever.
 	space.SetDamping(spaceDamping)
 
-	// Add each asteroid as its own circular body. A custom velocity function
-	// cancels the global damping for asteroids only, so rocks coast through space
-	// instead of dragging to a halt like the ship.
+	// Add each asteroid as its own circular body. Like every other body, asteroids
+	// use the space's global damping, so rocks gradually coast to a halt too.
 	asteroidBodies := make([]*cp.Body, 0, len(asteroids))
 	for _, a := range asteroids {
 		r := float64(a.Size)
@@ -158,9 +158,6 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		ab := cp.NewBody(m, cp.MomentForCircle(m, 0, r, cp.Vector{}))
 		ab.SetPosition(cp.Vector{X: float64(a.Position.X), Y: float64(a.Position.Y)})
 		ab.SetVelocityVector(cp.Vector{X: float64(a.Velocity.X), Y: float64(a.Velocity.Y)})
-		ab.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
-			b.UpdateVelocity(gravity, 1.0, dt)
-		})
 		space.AddBody(ab)
 
 		shape := space.AddShape(cp.NewCircle(ab, r, cp.Vector{}))
@@ -485,8 +482,9 @@ func (p *Physics) removeShipPart(sb *shipBody, c GridCoord) {
 
 // spawnLoosePart creates a free-floating body for the part at grid coordinate c
 // on sb's ship. The debris inherits the velocity of that point on the ship
-// (linear plus the spin about the cockpit) so it flies off naturally, and coasts
-// without drag like an asteroid. The caller still removes the part from the grid.
+// (linear plus the spin about the cockpit) so it flies off naturally, then coasts
+// to a halt under the space's global damping. The caller still removes the part
+// from the grid.
 func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	part, ok := sb.ship.Parts[c]
 	if !ok {
@@ -509,10 +507,6 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	body.SetAngle(float64(sb.ship.Direction))
 	body.SetVelocityVector(vel)
 	body.SetAngularVelocity(w)
-	// Cancel global damping so debris coasts through space like the asteroids do.
-	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
-		b.UpdateVelocity(gravity, 1.0, dt)
-	})
 	p.space.AddBody(body)
 
 	shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(cp.Vector{}, cellSize/2, cellSize/2), 0))
