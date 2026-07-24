@@ -33,8 +33,8 @@ func main() {
 		log.Printf("default ship is invalid: %v", err)
 	}
 
-	// Camera for the game view. Zoom 0.5 shows twice as much world as 1:1,
-	// i.e. we're zoomed out 2x for the piloting view. Spacewalk mode will later
+	// Camera for the game view. Zoom 0.25 shows four times as much world as 1:1,
+	// i.e. we're zoomed out 4x for the piloting view. Spacewalk mode will later
 	// use zoom 1.0 (parts drawn at their full cellSize pixel size). The offset
 	// centers the camera target on screen. Each frame Target is set to the ship's
 	// position (nudged down one cell so the body, which extends behind the
@@ -43,7 +43,7 @@ func main() {
 		Target:   rl.NewVector2(0, cellSize),
 		Offset:   rl.NewVector2(gameWidth/2, gameHeight/2),
 		Rotation: 0,
-		Zoom:     0.5,
+		Zoom:     0.25,
 	}
 
 	// Source is the render texture; it's flipped vertically because OpenGL
