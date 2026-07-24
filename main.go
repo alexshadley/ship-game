@@ -26,13 +26,15 @@ func main() {
 	defer rl.CloseWindow()
 
 	rl.SetTargetFPS(60)
+	// Escape opens the pause menu rather than closing the window (raylib's default).
+	rl.SetExitKey(rl.KeyNull)
 
 	target := rl.LoadRenderTexture(gameWidth, gameHeight)
 	defer rl.UnloadRenderTexture(target)
 
-	ship := DefaultShip(rl.NewVector2(0, 0))
+	ship := LoadPlayerShip(rl.NewVector2(0, 0))
 	if err := ship.Validate(); err != nil {
-		log.Printf("default ship is invalid: %v", err)
+		log.Printf("player ship is invalid: %v", err)
 	}
 
 	// Target is nudged up half a cell because the ship's body extends forward of
@@ -86,12 +88,36 @@ func main() {
 
 	var projectiles []*Projectile
 
+	state := StatePlaying
+	var menu Menu
+	var designer *Designer
+
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
-		// Once the astronaut is gone the world stops simulating; only the render pass
-		// below keeps running so the GAME OVER banner stays on screen.
-		if !gameOver {
+		switch state {
+		case StatePlaying:
+			if rl.IsKeyPressed(rl.KeyEscape) {
+				state = StateMenu
+			}
+		case StateMenu:
+			switch menu.Update() {
+			case MenuResume:
+				state = StatePlaying
+			case MenuOpenDesigner:
+				designer = NewDesigner()
+				state = StateDesigner
+			case MenuQuit:
+				return
+			}
+			if state == StateMenu && rl.IsKeyPressed(rl.KeyEscape) {
+				state = StatePlaying
+			}
+		}
+
+		// Once the astronaut is gone the world stops simulating; only the render
+		// pass below keeps running so the GAME OVER banner stays on screen.
+		if state == StatePlaying && !gameOver {
 			// Toggle debug god mode (player ship invincible) with G.
 			if rl.IsKeyPressed(rl.KeyG) {
 				godMode = !godMode
@@ -103,7 +129,6 @@ func main() {
 				spawnEnemy()
 				enemySpawnTimer = enemySpawnInterval
 			}
-
 			if spacewalking {
 				if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
 					// Drop whatever's in hand back into space before climbing aboard.
@@ -112,7 +137,7 @@ func main() {
 					spacewalking = false
 				} else {
 					// Grab, drag, and attach loose parts while out on the walk.
-					scavenger.Update(physics, ship, &player, camera)
+					scavenger.Update(physics, ship, &player, camera, dt)
 				}
 			} else if rl.IsKeyPressed(rl.KeyF) {
 				player.EjectFrom(ship)
@@ -156,64 +181,78 @@ func main() {
 			camera.Target.Y += (followPoint.Y - camera.Target.Y) * te
 		}
 
-		rl.BeginTextureMode(target)
-		rl.ClearBackground(rl.Black)
-		rl.BeginMode2D(camera)
-		for _, a := range asteroids {
-			a.Draw()
-		}
-		// Exhaust draws before the ship so plumes read as coming out from under it.
-		particles.Draw()
-		for _, pr := range projectiles {
-			pr.Draw()
-		}
-		for _, e := range enemies {
-			e.Draw()
-		}
-		for _, l := range physics.LooseParts() {
-			l.Draw()
-		}
-		ship.Draw()
-		if spacewalking {
-			player.Draw()
-			// The part being scavenged draws over the ship as a placement preview.
-			scavenger.Draw(ship)
-		}
-		rl.EndMode2D()
-
-		var minimapPlayer *Player
-		hint := "F: spacewalk"
-		if spacewalking {
-			minimapPlayer = &player
-			hint = "WASD: move  ·  hold LMB: grab part"
-			if scavenger.Held != nil {
-				hint = "R: rotate  ·  release LMB: attach"
-			} else if player.NearCockpit(ship) {
-				hint = "F: re-enter ship"
+		if state == StatePlaying || state == StateMenu {
+			rl.BeginTextureMode(target)
+			rl.ClearBackground(rl.Black)
+			rl.BeginMode2D(camera)
+			for _, a := range asteroids {
+				a.Draw()
 			}
+			// Exhaust draws before the ship so plumes read as coming out from under it.
+			particles.Draw()
+			for _, pr := range projectiles {
+				pr.Draw()
+			}
+			for _, e := range enemies {
+				e.Draw()
+			}
+			for _, l := range physics.LooseParts() {
+				l.Draw()
+			}
+			ship.Draw()
+			if spacewalking {
+				player.Draw()
+				// The part being scavenged draws over the ship as a placement preview.
+				scavenger.Draw(ship)
+			}
+			rl.EndMode2D()
+
+			var minimapPlayer *Player
+			hint := "F: spacewalk"
+			if spacewalking {
+				minimapPlayer = &player
+				hint = "WASD: move  ·  hold LMB: grab / pry off part"
+				if scavenger.Held != nil {
+					hint = "R: rotate  ·  release LMB: attach"
+				} else if scavenger.prying {
+					hint = "hold to pry part loose…"
+				} else if player.NearCockpit(ship) {
+					hint = "F: re-enter ship"
+				}
+			}
+			DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
+			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
+			// While out on a walk, show the astronaut's health as a top-left readout.
+			if spacewalking {
+				drawPlayerHealthHUD(player.Health)
+			}
+			// Debug indicator: show god-mode state and its toggle key in the corner.
+			debugLabel := "G: god mode OFF"
+			debugColor := rl.Gray
+			if godMode {
+				debugLabel = "G: GOD MODE ON"
+				debugColor = rl.Lime
+			}
+			rl.DrawText(debugLabel, 6, 6, 10, debugColor)
+			if gameOver {
+				drawGameOver()
+			}
+			rl.EndTextureMode()
 		}
-		DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
-		rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
-		// While out on a walk, show the astronaut's health as a top-left readout.
-		if spacewalking {
-			drawPlayerHealthHUD(player.Health)
-		}
-		// Debug indicator: show god-mode state and its toggle key in the corner.
-		debugLabel := "G: god mode OFF"
-		debugColor := rl.Gray
-		if godMode {
-			debugLabel = "G: GOD MODE ON"
-			debugColor = rl.Lime
-		}
-		rl.DrawText(debugLabel, 6, 6, 10, debugColor)
-		if gameOver {
-			drawGameOver()
-		}
-		rl.EndTextureMode()
 
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
-		rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
+		switch state {
+		case StatePlaying, StateMenu:
+			rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
+			if state == StateMenu {
+				menu.Draw()
+			}
+		case StateDesigner:
+			if designer.Frame() {
+				state = StateMenu
+			}
+		}
 		rl.EndDrawing()
 	}
 }
