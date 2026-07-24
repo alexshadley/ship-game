@@ -25,9 +25,19 @@ func main() {
 		log.Printf("default ship is invalid: %v", err)
 	}
 
+	asteroids := DefaultAsteroids()
+
 	for !rl.WindowShouldClose() {
+		dt := rl.GetFrameTime()
+		for _, a := range asteroids {
+			a.Update(dt)
+		}
+
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
+		for _, a := range asteroids {
+			a.Draw()
+		}
 		ship.Draw()
 		rl.EndDrawing()
 	}
