@@ -324,7 +324,7 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		sb.fireCooldown -= float32(dt)
 		if sb.controls.Fire && sb.fireCooldown <= 0 {
 			projectiles = append(projectiles, sb.ship.FireCannons()...)
-			sb.fireCooldown = cannonFireInterval
+			sb.fireCooldown = sb.ship.FireInterval()
 		}
 	}
 	p.ships = survivors

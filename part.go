@@ -16,6 +16,9 @@ const (
 	// that attached side, and it thrusts along the perpendicular axis.
 	PartControlThruster
 	PartCannon
+	// PartWeakCannon is a junk cannon: it fires the same shot as PartCannon but at a
+	// third the cadence (see weakCannonFireInterval). Stock enemies carry one.
+	PartWeakCannon
 )
 
 func (t PartType) String() string {
@@ -30,6 +33,8 @@ func (t PartType) String() string {
 		return "Control Thruster"
 	case PartCannon:
 		return "Cannon"
+	case PartWeakCannon:
+		return "Weak Cannon"
 	default:
 		return "Unknown"
 	}
@@ -120,6 +125,7 @@ var partSpecs = map[PartType]partSpec{
 
 	PartControlThruster: {health: 50, weight: 1.5, color: rl.Purple},
 	PartCannon:          {health: 20, weight: 2.0, color: rl.DarkGreen},
+	PartWeakCannon:      {health: 20, weight: 2.0, color: rl.DarkBrown},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

@@ -143,6 +143,32 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	return s
 }
 
+// EnemyShip is the stock hostile hull: a deliberately underpowered, lopsided
+// wreck. Where the player's DefaultShip is a symmetric two-engine, two-thruster,
+// two-cannon craft, this thing limps along on a single engine, turns on a single
+// control thruster, and fires a single cannon. The cockpit juts out front-left
+// with no armor around it — an exposed, easy target — while the ragged hull
+// trails down and to the right toward its one engine, giving it a junky,
+// asymmetric silhouette.
+func EnemyShip(pos rl.Vector2) *Ship {
+	s := NewShip(pos)
+	// Exposed cockpit, poking out the front-left corner with open space ahead and
+	// to its left — no nose armor.
+	s.AddPart(GridCoord{X: 0, Y: 0}, NewPart(PartCockpit, FacingUp))
+	// A crooked hull spine that steps back and to the right.
+	s.AddPart(GridCoord{X: 0, Y: 1}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartBlock, FacingUp))
+	// The lone engine hangs off the rear-right, well off the centerline.
+	s.AddPart(GridCoord{X: 2, Y: 2}, NewPart(PartEngine, FacingDown))
+	// A single junk cannon bolted beside the cockpit, clear line of fire straight
+	// ahead. It fires at a third the rate of a standard cannon (see PartWeakCannon).
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartWeakCannon, FacingUp))
+	// The one control thruster sticks out the far right end of the spine.
+	s.AddPart(GridCoord{X: 3, Y: 1}, NewPart(PartControlThruster, FacingLeft))
+	return s
+}
+
 func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 	sin := float32(math.Sin(float64(s.Direction)))
 	cos := float32(math.Cos(float64(s.Direction)))
@@ -289,6 +315,8 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 	case PartControlThruster:
 		drawControlThrusterNozzlesAt(center, baseAngle, p.Facing)
 	case PartCannon:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
+	case PartWeakCannon:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
 	}
 }

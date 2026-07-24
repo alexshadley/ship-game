@@ -9,7 +9,10 @@ import (
 const (
 	cannonMuzzleSpeed  = 600.0
 	cannonFireInterval = 0.18
-	projectileLifespan = 15.0
+	// weakCannonFireInterval is the junk cannon's cadence: a third the fire rate of a
+	// standard cannon.
+	weakCannonFireInterval = cannonFireInterval * 3
+	projectileLifespan     = 15.0
 )
 
 var projectileSize = rl.NewVector2(4, 12)
@@ -48,13 +51,26 @@ func (p *Projectile) Draw() {
 	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, rl.Yellow)
 }
 
+// FireInterval is the cooldown between this ship's volleys, governed by its
+// slowest cannon: a ship packing only weak cannons fires at a third the standard
+// rate, while any standard cannon keeps it at the full cadence.
+func (s *Ship) FireInterval() float32 {
+	interval := float32(cannonFireInterval)
+	for _, part := range s.Parts {
+		if part.Type == PartWeakCannon && weakCannonFireInterval > interval {
+			interval = weakCannonFireInterval
+		}
+	}
+	return interval
+}
+
 func (s *Ship) FireCannons() []*Projectile {
 	sin := float32(math.Sin(float64(s.Direction)))
 	cos := float32(math.Cos(float64(s.Direction)))
 
 	var shots []*Projectile
 	for c, part := range s.Parts {
-		if part.Type != PartCannon {
+		if part.Type != PartCannon && part.Type != PartWeakCannon {
 			continue
 		}
 
