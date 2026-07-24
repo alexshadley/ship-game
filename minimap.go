@@ -15,7 +15,7 @@ const (
 // DrawMinimap must be called in screen (texture) space — outside BeginMode2D —
 // so it stays fixed as an overlay rather than moving with the camera. player is
 // non-nil only during a spacewalk.
-func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship, player *Player) {
+func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship, looseParts []*LoosePart, player *Player) {
 	center := rl.NewVector2(
 		gameWidth-minimapRadius-minimapMargin,
 		gameHeight-minimapRadius-minimapMargin,
@@ -23,6 +23,17 @@ func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship, player *Pla
 
 	rl.DrawCircleV(center, minimapRadius, rl.NewColor(0, 0, 0, 160))
 	rl.DrawCircleLines(int32(center.X), int32(center.Y), minimapRadius, rl.NewColor(255, 255, 255, 120))
+
+	for _, l := range looseParts {
+		blip := rl.NewVector2(
+			center.X+(l.Position.X-ship.Position.X)*minimapScale,
+			center.Y+(l.Position.Y-ship.Position.Y)*minimapScale,
+		)
+		if dist(blip, center)+1.5 > minimapRadius {
+			continue
+		}
+		rl.DrawCircleV(blip, 1.5, rl.Yellow)
+	}
 
 	for _, a := range asteroids {
 		blip := rl.NewVector2(
