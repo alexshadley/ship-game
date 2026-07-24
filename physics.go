@@ -128,17 +128,36 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	handler := space.NewCollisionHandler(collisionShip, collisionAsteroid)
 	handler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		shipShape, _ := arb.Shapes()
-		part, ok := shipShape.UserData.(*Part)
-		if !ok {
-			return
+		if part, ok := shipShape.UserData.(*Part); ok {
+			damagePart(part, arb.TotalImpulse().Length())
 		}
-		part.Health -= float32(arb.TotalImpulse().Length()) * damagePerImpulse
-		if part.Health < 0 {
-			part.Health = 0
+	}
+
+	// Ship–ship contacts damage the struck part on both ships, again in proportion
+	// to the collision impulse. Both shapes are ship parts, so damage is applied to
+	// each of them.
+	shipHandler := space.NewCollisionHandler(collisionShip, collisionShip)
+	shipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		a, b := arb.Shapes()
+		impulse := arb.TotalImpulse().Length()
+		if part, ok := a.UserData.(*Part); ok {
+			damagePart(part, impulse)
+		}
+		if part, ok := b.UserData.(*Part); ok {
+			damagePart(part, impulse)
 		}
 	}
 
 	return p
+}
+
+// damagePart removes health from a struck part in proportion to the collision
+// impulse, clamping at zero. Shared by the ship–asteroid and ship–ship handlers.
+func damagePart(part *Part, impulse float64) {
+	part.Health -= float32(impulse) * damagePerImpulse
+	if part.Health < 0 {
+		part.Health = 0
+	}
 }
 
 // AddShip builds a rigid body for ship and registers controller as the source of
