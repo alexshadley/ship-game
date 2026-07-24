@@ -568,6 +568,42 @@ func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
 	}
 }
 
+// DetachPart pries the part at grid cell c off ship and returns it (nil if the
+// cell is empty, holds the cockpit, or the ship isn't simulated here). Because
+// the pried part may have been the only link between the cockpit and others,
+// any parts thereby stranded are cut loose as debris. It is the inverse of
+// AttachPart, and mirrors the stranding logic of handleBreakage.
+func (p *Physics) DetachPart(ship *Ship, c GridCoord) *Part {
+	for _, sb := range p.ships {
+		if sb.ship != ship {
+			continue
+		}
+		part, ok := sb.ship.Parts[c]
+		if !ok || part.Type == PartCockpit {
+			return nil
+		}
+		p.removeShipPart(sb, c)
+
+		if cockpit, hasCockpit := sb.ship.Cockpit(); hasCockpit {
+			connected := sb.ship.connectedParts(cockpit)
+			var stranded []GridCoord
+			for gc := range sb.ship.Parts {
+				if !connected[gc] {
+					stranded = append(stranded, gc)
+				}
+			}
+			for _, gc := range stranded {
+				p.spawnLoosePart(sb, gc)
+				p.removeShipPart(sb, gc)
+			}
+		}
+
+		p.recomputeShipBody(sb)
+		return part
+	}
+	return nil
+}
+
 // destroyShip scatters every remaining part of sb as loose debris and removes its
 // body, marking the ship destroyed. The cockpit simply vanishes rather than
 // scattering. The caller drops the ship from p.ships.
