@@ -36,8 +36,9 @@ func main() {
 	// Camera for the game view. Zoom 0.5 shows twice as much world as 1:1,
 	// i.e. we're zoomed out 2x for the piloting view. Spacewalk mode will later
 	// use zoom 1.0 (parts drawn at their full cellSize pixel size). The offset
-	// centers the camera target on screen; nudge up one cell so the body (which
-	// extends behind the cockpit) reads as roughly centered.
+	// centers the camera target on screen. Each frame Target is set to the ship's
+	// position (nudged down one cell so the body, which extends behind the
+	// cockpit, reads as roughly centered) so the camera follows the ship.
 	camera := rl.Camera2D{
 		Target:   rl.NewVector2(0, cellSize),
 		Offset:   rl.NewVector2(gameWidth/2, gameHeight/2),
@@ -56,6 +57,9 @@ func main() {
 	for !rl.WindowShouldClose() {
 		physics.Update(float64(rl.GetFrameTime()))
 
+		// Follow the ship: keep it centered (with the one-cell downward nudge).
+		camera.Target = rl.NewVector2(ship.Position.X, ship.Position.Y+cellSize)
+
 		// Draw the game to the low-resolution render texture.
 		rl.BeginTextureMode(target)
 		rl.ClearBackground(rl.RayWhite)
@@ -65,6 +69,9 @@ func main() {
 		}
 		ship.Draw()
 		rl.EndMode2D()
+
+		// Overlay the minimap in screen (texture) space, on top of the world.
+		DrawMinimap(ship, asteroids)
 		rl.EndTextureMode()
 
 		// Scale the render texture up to the full window.
