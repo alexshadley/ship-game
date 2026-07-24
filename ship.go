@@ -136,20 +136,26 @@ func (s *Ship) connectedParts(cockpit GridCoord) map[GridCoord]bool {
 	return seen
 }
 
-// DefaultShip builds a small, valid arrowhead-shaped ship centered at pos:
-// a cockpit up front, a block body with wings, and two rear engines.
+// DefaultShip builds a small, valid arrowhead-shaped ship centered at pos. The
+// cockpit sits at the rear with nothing directly behind it (grid {0,1} is left
+// open) so the pilot can pop out the back on a spacewalk; a wall of protective
+// blocks fills the nose in front of it, and the engines flank the open exit slot.
 func DefaultShip(pos rl.Vector2) *Ship {
 	s := NewShip(pos)
 	s.AddPart(GridCoord{X: 0, Y: 0}, NewPart(PartCockpit, FacingUp))
-	s.AddPart(GridCoord{X: 0, Y: 1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: -1, Y: 1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 0, Y: 2}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: -1, Y: 2}, NewPart(PartEngine, FacingDown))
-	s.AddPart(GridCoord{X: 1, Y: 2}, NewPart(PartEngine, FacingDown))
+	// Protective block wall in front of (ahead of, -Y) the cockpit, tapering to a
+	// nose tip so the cockpit is shielded from head-on impacts.
+	s.AddPart(GridCoord{X: 0, Y: -1}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 0, Y: -2}, NewPart(PartBlock, FacingUp))
+	// Rear engines flanking the open exit slot at {0,1}; the cell directly behind
+	// the cockpit stays empty so the pilot can climb out.
+	s.AddPart(GridCoord{X: -1, Y: 1}, NewPart(PartEngine, FacingDown))
+	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartEngine, FacingDown))
 	// Wing-tip control thrusters, each attached on its inboard side only.
-	s.AddPart(GridCoord{X: -2, Y: 1}, NewPart(PartControlThruster, FacingRight))
-	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartControlThruster, FacingLeft))
+	s.AddPart(GridCoord{X: -2, Y: 0}, NewPart(PartControlThruster, FacingRight))
+	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
 	// Forward-firing cannons flanking the cockpit.
 	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartCannon, FacingUp))
 	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartCannon, FacingUp))
@@ -165,6 +171,24 @@ func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 		s.Position.X+lx*cos-ly*sin,
 		s.Position.Y+lx*sin+ly*cos,
 	)
+}
+
+// partAtWorld returns the part occupying the ship cell that world point wp lands
+// in, or nil if the point is off the ship. It inverts worldPoint: shift by the
+// ship origin and un-rotate by the ship's heading to recover local pixels, then
+// round to the nearest cell (each part fills one cellSize box around its center).
+func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
+	sin := float32(math.Sin(float64(s.Direction)))
+	cos := float32(math.Cos(float64(s.Direction)))
+	dx := wp.X - s.Position.X
+	dy := wp.Y - s.Position.Y
+	lx := dx*cos + dy*sin
+	ly := -dx*sin + dy*cos
+	c := GridCoord{
+		X: int(math.Round(float64(lx / cellSize))),
+		Y: int(math.Round(float64(ly / cellSize))),
+	}
+	return s.Parts[c]
 }
 
 // worldVec rotates a vector expressed in the ship's local frame into world space

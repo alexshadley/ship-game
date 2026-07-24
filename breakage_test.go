@@ -75,9 +75,15 @@ func TestBreakCockpitDestroysShip(t *testing.T) {
 	if len(ship.Parts) != 0 {
 		t.Errorf("destroyed ship should have no parts, has %d", len(ship.Parts))
 	}
-	// Every original part (cockpit included) becomes loose debris.
-	if got := len(phys.LooseParts()); got != total {
-		t.Errorf("expected %d loose parts, got %d", total, got)
+	// Every original part except the cockpit becomes loose debris; the cockpit
+	// vanishes when the ship scatters.
+	if got, want := len(phys.LooseParts()), total-1; got != want {
+		t.Errorf("expected %d loose parts, got %d", want, got)
+	}
+	for _, lp := range phys.LooseParts() {
+		if lp.Part.Type == PartCockpit {
+			t.Error("cockpit should not scatter as a loose part")
+		}
 	}
 	if sb.engines != 0 || sb.thrusters != 0 {
 		t.Errorf("destroyed ship should have no engines/thrusters, got %d/%d", sb.engines, sb.thrusters)
