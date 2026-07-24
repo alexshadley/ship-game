@@ -77,7 +77,7 @@ func main() {
 	// damage handlers can spare it, then scatter salvageable parts to scavenge.
 	physics.playerShip = ship
 	physics.godMode = &godMode
-	physics.SeedLooseParts(40)
+	physics.SeedLooseParts(3)
 
 	var projectiles []*Projectile
 
@@ -178,7 +178,7 @@ func main() {
 				hint = "SHIFT: re-enter ship"
 			}
 		}
-		DrawMinimap(ship, asteroids, enemies, minimapPlayer)
+		DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
 		rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
 		// Debug indicator: show god-mode state and its toggle key in the corner.
 		debugLabel := "G: god mode OFF"
