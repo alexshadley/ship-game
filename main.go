@@ -116,6 +116,10 @@ func main() {
 		}
 		projectiles = live
 
+		// Resolve hits: a projectile that strikes a ship part damages it, and any
+		// projectile that hits a ship or asteroid is consumed.
+		projectiles = physics.ResolveProjectiles(projectiles)
+
 		// Ease the zoom toward the current mode's level so entering/leaving a
 		// spacewalk zooms gradually rather than snapping.
 		targetZoom := float32(pilotingZoom)
@@ -150,6 +154,10 @@ func main() {
 		}
 		for _, e := range enemies {
 			e.Draw()
+		}
+		// Loose parts (broken-off debris) drift in the same world frame as the ship.
+		for _, l := range physics.LooseParts() {
+			l.Draw()
 		}
 		ship.Draw()
 		if spacewalking {

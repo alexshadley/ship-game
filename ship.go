@@ -21,6 +21,10 @@ type Ship struct {
 	Direction       float32    // heading in radians; 0 points "up" (-Y on screen)
 	Velocity        rl.Vector2 // world-space velocity in pixels/sec
 	AngularVelocity float32    // turning rate in radians/sec (+clockwise)
+
+	// Destroyed is set when the cockpit is lost; the ship's remaining parts have
+	// all been flung off as loose debris and it no longer participates in the sim.
+	Destroyed bool
 }
 
 // NewShip returns an empty ship positioned at pos.
@@ -113,6 +117,25 @@ func (s *Ship) Validate() error {
 	return nil
 }
 
+// connectedParts returns the set of grid coordinates reachable from cockpit by
+// walking orthogonally adjacent parts. Parts absent from the result are stranded
+// (no longer attached to the cockpit) and should be cut loose.
+func (s *Ship) connectedParts(cockpit GridCoord) map[GridCoord]bool {
+	seen := map[GridCoord]bool{cockpit: true}
+	queue := []GridCoord{cockpit}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, n := range cur.neighbors() {
+			if _, ok := s.Parts[n]; ok && !seen[n] {
+				seen[n] = true
+				queue = append(queue, n)
+			}
+		}
+	}
+	return seen
+}
+
 // DefaultShip builds a small, valid arrowhead-shaped ship centered at pos. The
 // cockpit sits at the rear with nothing directly behind it (grid {0,1} is left
 // open) so the pilot can pop out the back on a spacewalk; a wall of protective
@@ -148,6 +171,24 @@ func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 		s.Position.X+lx*cos-ly*sin,
 		s.Position.Y+lx*sin+ly*cos,
 	)
+}
+
+// partAtWorld returns the part occupying the ship cell that world point wp lands
+// in, or nil if the point is off the ship. It inverts worldPoint: shift by the
+// ship origin and un-rotate by the ship's heading to recover local pixels, then
+// round to the nearest cell (each part fills one cellSize box around its center).
+func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
+	sin := float32(math.Sin(float64(s.Direction)))
+	cos := float32(math.Cos(float64(s.Direction)))
+	dx := wp.X - s.Position.X
+	dy := wp.Y - s.Position.Y
+	lx := dx*cos + dy*sin
+	ly := -dx*sin + dy*cos
+	c := GridCoord{
+		X: int(math.Round(float64(lx / cellSize))),
+		Y: int(math.Round(float64(ly / cellSize))),
+	}
+	return s.Parts[c]
 }
 
 // worldVec rotates a vector expressed in the ship's local frame into world space
@@ -223,32 +264,39 @@ func (s *Ship) ControlThrusterExhaustSources(turn int) []ExhaustSource {
 
 // Draw renders the ship's parts at its current position and orientation.
 func (s *Ship) Draw() {
-	rotDeg := s.Direction * 180 / math.Pi
-
 	for c, p := range s.Parts {
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
-
-		// Dark outline behind, colored fill inset slightly in front. Both share
-		// the same center so they rotate together.
-		drawCell(center, cellSize, rotDeg, rl.DarkGray)
-		drawCell(center, cellSize-3, rotDeg, partSpecs[p.Type].color)
-
-		// Parts whose facing is meaningful get an in-cell arrow showing it.
-		switch p.Type {
-		case PartCockpit:
-			s.drawFacingIndicator(c, p.Facing, rl.DarkBlue)
-		case PartEngine:
-			s.drawFacingIndicator(c, p.Facing, rl.Red)
-		case PartControlThruster:
-			s.drawControlThrusterNozzles(c, p.Facing)
-		case PartCannon:
-			s.drawFacingIndicator(c, p.Facing, rl.Black)
-		}
+		drawPart(center, s.Direction, p)
 
 		// A damaged part shows a small health bar above its cell.
 		if maxHealth := partSpecs[p.Type].health; p.Health < maxHealth {
 			drawHealthBar(center, p.Health/maxHealth)
 		}
+	}
+}
+
+// drawPart renders a single part's cell (dark outline plus colored fill) and, for
+// parts whose facing is meaningful, its in-cell facing indicator. center is the
+// part's world position and baseAngle the world rotation of the frame it sits in
+// (the ship's Direction for ship parts, a debris rotation for loose parts), so
+// the same routine draws parts attached to a ship or drifting free.
+func drawPart(center rl.Vector2, baseAngle float32, p *Part) {
+	rotDeg := baseAngle * 180 / math.Pi
+
+	// Dark outline behind, colored fill inset slightly in front. Both share the
+	// same center so they rotate together.
+	drawCell(center, cellSize, rotDeg, rl.DarkGray)
+	drawCell(center, cellSize-3, rotDeg, partSpecs[p.Type].color)
+
+	switch p.Type {
+	case PartCockpit:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.DarkBlue)
+	case PartEngine:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Red)
+	case PartControlThruster:
+		drawControlThrusterNozzlesAt(center, baseAngle, p.Facing)
+	case PartCannon:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
 	}
 }
 
@@ -276,16 +324,12 @@ func drawCell(center rl.Vector2, size, rotDeg float32, color rl.Color) {
 	rl.DrawRectanglePro(rec, origin, rotDeg, color)
 }
 
-// drawFacingIndicator draws a small arrow inside the part's cell pointing in its
-// facing direction. The arrow is kept within the cell bounds so a part never
-// draws outside its own 1x1 area.
-func (s *Ship) drawFacingIndicator(c GridCoord, facing Facing, color rl.Color) {
-	cx := float32(c.X) * cellSize
-	cy := float32(c.Y) * cellSize
-
-	a := facing.angle()
-	sin := float32(math.Sin(float64(a)))
-	cos := float32(math.Cos(float64(a)))
+// drawFacingIndicatorAt draws a small arrow centered at center pointing along
+// angle (world radians, 0 = up). The arrow stays within ±cellSize/2 of center so
+// it never leaves the part's own 1x1 cell.
+func drawFacingIndicatorAt(center rl.Vector2, angle float32, color rl.Color) {
+	sin := float32(math.Sin(float64(angle)))
+	cos := float32(math.Cos(float64(angle)))
 
 	// Canonical "up"-pointing arrow relative to the cell center. All offsets
 	// stay within ±cellSize/2 so the arrow never leaves the cell.
@@ -297,21 +341,24 @@ func (s *Ship) drawFacingIndicator(c GridCoord, facing Facing, color rl.Color) {
 
 	var w [3]rl.Vector2
 	for i, p := range pts {
-		// Rotate the point about the cell center by the facing angle, then place
-		// it in the world (which also applies the ship's own rotation).
 		rx := p.X*cos - p.Y*sin
 		ry := p.X*sin + p.Y*cos
-		w[i] = s.worldPoint(cx+rx, cy+ry)
+		w[i] = rl.NewVector2(center.X+rx, center.Y+ry)
 	}
 	rl.DrawTriangle(w[0], w[1], w[2], color)
 }
 
-// drawControlThrusterNozzles draws a control thruster's two nozzles, one firing
-// to each side of its attachment axis. Like drawFacingIndicator, every offset is
-// kept within ±cellSize/2 so the thruster never draws outside its own cell.
-func (s *Ship) drawControlThrusterNozzles(c GridCoord, facing Facing) {
-	cx := float32(c.X) * cellSize
-	cy := float32(c.Y) * cellSize
+// drawControlThrusterNozzlesAt draws a control thruster's two nozzles, one firing
+// to each side of its attachment axis, centered at center within a frame rotated
+// by baseAngle (world radians). Like drawFacingIndicatorAt, every offset is kept
+// within ±cellSize/2 so the thruster never draws outside its own cell.
+func drawControlThrusterNozzlesAt(center rl.Vector2, baseAngle float32, facing Facing) {
+	sin := float32(math.Sin(float64(baseAngle)))
+	cos := float32(math.Cos(float64(baseAngle)))
+	// Rotate a local-frame offset (relative to the cell center) into world space.
+	at := func(x, y float32) rl.Vector2 {
+		return rl.NewVector2(center.X+x*cos-y*sin, center.Y+x*sin+y*cos)
+	}
 
 	// Thrust axis (perpendicular to the attachment side) and attachment axis, as
 	// unit steps in the local pixel frame. The two arrows point along ±thrust.
@@ -321,9 +368,9 @@ func (s *Ship) drawControlThrusterNozzles(c GridCoord, facing Facing) {
 
 	for _, sign := range []float32{1, -1} {
 		dx, dy := sign*tx, sign*ty
-		tip := s.worldPoint(cx+dx*cellSize*0.42, cy+dy*cellSize*0.42)
-		b1 := s.worldPoint(cx+dx*cellSize*0.15+ax*cellSize*0.16, cy+dy*cellSize*0.15+ay*cellSize*0.16)
-		b2 := s.worldPoint(cx+dx*cellSize*0.15-ax*cellSize*0.16, cy+dy*cellSize*0.15-ay*cellSize*0.16)
+		tip := at(dx*cellSize*0.42, dy*cellSize*0.42)
+		b1 := at(dx*cellSize*0.15+ax*cellSize*0.16, dy*cellSize*0.15+ay*cellSize*0.16)
+		b2 := at(dx*cellSize*0.15-ax*cellSize*0.16, dy*cellSize*0.15-ay*cellSize*0.16)
 		// Keep a consistent winding on both sides so neither gets back-face culled.
 		if sign > 0 {
 			rl.DrawTriangle(tip, b1, b2, rl.Violet)
