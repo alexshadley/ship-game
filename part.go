@@ -20,11 +20,16 @@ const (
 	PartControlThruster
 	// PartPDC is a point-defense cannon: it slews its aim toward the ship's fire
 	// target anywhere within pdcHalfArc of its mount facing and spits short-ranged
-	// rounds (see FirePDCs).
+	// rounds (see FireWeapons).
 	PartPDC
 	// PartSlowPDC is a junk PDC: it fires the same round as PartPDC but at a
 	// third the cadence (see slowPDCFireInterval). Stock enemies carry one.
 	PartSlowPDC
+	// PartMissileLauncher is a heavy weapon: it fires rarely and within a narrow
+	// arc, launching a slow round that accelerates to a cruise speed, can be shot
+	// down in flight (it has health), and detonates for area damage that shoves
+	// ships away from the blast (see FireWeapons and Physics.missileBlast).
+	PartMissileLauncher
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -59,6 +64,8 @@ func (t PartType) String() string {
 		return "PDC"
 	case PartSlowPDC:
 		return "Slow PDC"
+	case PartMissileLauncher:
+		return "Missile Launcher"
 	default:
 		return "Unknown"
 	}
@@ -161,6 +168,7 @@ var partSpecs = map[PartType]partSpec{
 	PartControlThruster: {health: 50, weight: partWeight, color: rl.Purple},
 	PartPDC:             {health: 20, weight: partWeight, color: rl.DarkGreen},
 	PartSlowPDC:         {health: 20, weight: partWeight, color: rl.DarkBrown},
+	PartMissileLauncher: {health: 20, weight: partWeight, color: rl.Maroon},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

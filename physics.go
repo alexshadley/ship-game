@@ -31,6 +31,18 @@ const (
 	// playerDamagePerImpulse scales collision impulse into astronaut damage. The
 	// spacesuit is fragile (15 hp), so ramming an asteroid or a ship hurts fast.
 	playerDamagePerImpulse = 0.05
+
+	// Missile detonation. On impact a missile deals up to missileBlastDamage,
+	// falling off linearly to zero at missileBlastRadius. The falloff is measured
+	// from the blast center to the nearest point of each part, so a directly hit
+	// part (nearest point at the center) takes full damage. The same falloff
+	// scales missileBlastImpulse, the knockback that shoves bodies away from the
+	// blast. missileInterceptRadius is how close a PDC round must pass to a missile
+	// to damage it in flight.
+	missileBlastDamage     = 90.0
+	missileBlastRadius     = 3 * cellSize
+	missileBlastImpulse    = 6000.0
+	missileInterceptRadius = 18.0
 )
 
 const (
@@ -257,8 +269,37 @@ func (p *Physics) damageShipShapePart(shape *cp.Shape, impulse float64) {
 // fired it (see Projectile.Owner) but strikes everything else, friend or foe.
 // Survivors are returned.
 func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
+	// Point defense: a PDC round that passes close to a hostile missile chips its
+	// health and is spent doing so. A missile shot down this way (health driven to
+	// zero) is destroyed without detonating — the reward for intercepting it. A
+	// ship's own rounds never touch its own missiles (they'd otherwise overtake the
+	// slow round on launch), so only enemy fire can bring one down.
+	consumed := make(map[*Projectile]bool)
+	for _, m := range projectiles {
+		if m.Kind != projectileMissile {
+			continue
+		}
+		for _, r := range projectiles {
+			if r.Kind == projectileMissile || consumed[r] || r.Owner == m.Owner {
+				continue
+			}
+			if dist(r.Position, m.Position) > missileInterceptRadius {
+				continue
+			}
+			consumed[r] = true
+			m.Health -= projectileDamage
+			if m.Health <= 0 {
+				consumed[m] = true
+				break
+			}
+		}
+	}
+
 	live := projectiles[:0]
 	for _, pr := range projectiles {
+		if consumed[pr] {
+			continue
+		}
 		if p.projectileHit(pr) {
 			continue
 		}
@@ -268,6 +309,9 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 }
 
 func (p *Physics) projectileHit(pr *Projectile) bool {
+	if pr.Kind == projectileMissile {
+		return p.missileHit(pr)
+	}
 	// A spacewalking astronaut can be shot; a hit consumes the round and wounds them.
 	if p.player != nil && dist(pr.Position, p.player.Position) <= playerRadius {
 		p.damagePlayer(projectileDamage)
@@ -318,6 +362,138 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 		}
 	}
 	return false
+}
+
+// missileHit tests whether a missile has struck anything solid — a ship other
+// than the one that fired it, loose debris, an asteroid, or the astronaut — and
+// if so detonates it (an area blast; see missileBlast) and consumes it.
+func (p *Physics) missileHit(pr *Projectile) bool {
+	hit := false
+	for _, sb := range p.ships {
+		if sb.ship == pr.Owner {
+			continue
+		}
+		if sb.ship.partAtWorld(pr.Position) != nil {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		for _, l := range p.looseParts {
+			if looseBlastDist(l, pr.Position) == 0 {
+				hit = true
+				break
+			}
+		}
+	}
+	if !hit {
+		for _, a := range p.asteroids {
+			dx := pr.Position.X - a.Position.X
+			dy := pr.Position.Y - a.Position.Y
+			if dx*dx+dy*dy <= a.Size*a.Size {
+				hit = true
+				break
+			}
+		}
+	}
+	if !hit && p.player != nil && dist(pr.Position, p.player.Position) <= playerRadius {
+		hit = true
+	}
+	if !hit {
+		return false
+	}
+	p.missileBlast(pr.Position)
+	return true
+}
+
+// missileBlast applies a missile's detonation at center: every ship part, piece
+// of loose debris, and the astronaut within missileBlastRadius takes damage that
+// falls off linearly with the distance from the blast center to the object's
+// nearest point (so a directly hit part takes full damage), and every affected
+// body is shoved away from the blast by an impulse with the same falloff.
+// Dead parts and debris are swept up by the usual breakage/cull passes next step.
+func (p *Physics) missileBlast(center rl.Vector2) {
+	for _, sb := range p.ships {
+		if p.playerInvincible(sb) {
+			continue
+		}
+		nearest := float32(math.MaxFloat32)
+		for c, part := range sb.ship.Parts {
+			d := sb.ship.distToCell(center, c)
+			if d < nearest {
+				nearest = d
+			}
+			if d >= missileBlastRadius {
+				continue
+			}
+			part.Health -= missileBlastDamage * (1 - d/missileBlastRadius)
+			if part.Health < 0 {
+				part.Health = 0
+			}
+		}
+		if nearest < missileBlastRadius {
+			applyBlastImpulse(sb.body, center, 1-nearest/missileBlastRadius)
+		}
+	}
+
+	for i, l := range p.looseParts {
+		d := looseBlastDist(l, center)
+		if d >= missileBlastRadius {
+			continue
+		}
+		falloff := 1 - d/missileBlastRadius
+		l.Part.Health -= missileBlastDamage * falloff
+		if l.Part.Health < 0 {
+			l.Part.Health = 0
+		}
+		applyBlastImpulse(p.looseBodies[i], center, falloff)
+	}
+
+	if p.player != nil && p.playerBody != nil {
+		d := dist(center, p.player.Position) - playerRadius
+		if d < 0 {
+			d = 0
+		}
+		if d < missileBlastRadius {
+			falloff := 1 - d/missileBlastRadius
+			p.damagePlayer(float64(missileBlastDamage * falloff))
+			applyBlastImpulse(p.playerBody, center, falloff)
+		}
+	}
+}
+
+// applyBlastImpulse shoves body away from a blast at center, with strength
+// missileBlastImpulse scaled by falloff (0..1). The impulse is applied at the
+// body's center of gravity so it reads as a clean push rather than a spin.
+func applyBlastImpulse(body *cp.Body, center rl.Vector2, falloff float32) {
+	if falloff <= 0 {
+		return
+	}
+	cog := body.LocalToWorld(body.CenterOfGravity())
+	dx := cog.X - float64(center.X)
+	dy := cog.Y - float64(center.Y)
+	d := math.Hypot(dx, dy)
+	if d < 1e-6 {
+		return
+	}
+	mag := missileBlastImpulse * float64(falloff)
+	body.ApplyImpulseAtWorldPoint(cp.Vector{X: dx / d * mag, Y: dy / d * mag}, cog)
+}
+
+// looseBlastDist returns the distance from world point p to the nearest point of
+// loose debris l's (rotated) cell box, mirroring Ship.distToCell for a single
+// free-floating cell. It is zero when p lies inside the box.
+func looseBlastDist(l *LoosePart, p rl.Vector2) float32 {
+	sin := float32(math.Sin(float64(l.Rotation)))
+	cos := float32(math.Cos(float64(l.Rotation)))
+	dx := p.X - l.Position.X
+	dy := p.Y - l.Position.Y
+	lx := dx*cos + dy*sin
+	ly := -dx*sin + dy*cos
+	half := float32(cellSize) / 2
+	ex := clamp(lx, -half, half) - lx
+	ey := clamp(ly, -half, half) - ly
+	return float32(math.Sqrt(float64(ex*ex + ey*ey)))
 }
 
 // addShipShape builds the collision box for part at grid cell c on body, giving it
@@ -452,7 +628,7 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 		emitExhaust(sb.ship, sb.controls, particles)
 
-		projectiles = append(projectiles, sb.ship.FirePDCs(float32(dt), sb.controls)...)
+		projectiles = append(projectiles, sb.ship.FireWeapons(float32(dt), sb.controls)...)
 	}
 	p.ships = survivors
 
@@ -617,7 +793,7 @@ func (p *Physics) cullDeadLooseParts() {
 
 // scavengePartTypes are the part types scattered as free debris for the player to
 // salvage — every type except the cockpit (a ship has exactly one, at {0,0}).
-var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartPDC}
+var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartPDC, PartMissileLauncher}
 
 // Loose-part scatter tuning: n stationary parts drift in a ring around the world
 // origin, close enough to reach on a spacewalk but clear of the ship's spawn.

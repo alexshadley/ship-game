@@ -24,9 +24,36 @@ const (
 	// muzzleSpeed/drag ≈ 900 world px, with rounds visibly petering out first.
 	pdcProjectileDrag     = 1.2
 	pdcProjectileLifespan = 1.8
+
+	// Missiles are a heavy, slow-firing weapon fired from a PartMissileLauncher.
+	// A launcher spits one roughly every missileFireInterval seconds and only
+	// within a tight missileHalfArc of its mount. The round leaves the tube slowly
+	// (missileLaunchSpeed) and its motor then builds speed at missileAcceleration
+	// up to a missileCruiseSpeed cruise. Unlike a PDC round a missile has health
+	// (missileHealth) and can be shot down in flight; on impact it detonates for
+	// area damage (see Physics.missileBlast).
+	missileFireInterval = 2.2
+	missileHalfArc      = 0.15 * math.Pi
+	missileLaunchSpeed  = 160.0
+	missileCruiseSpeed  = 950.0
+	missileAcceleration = 650.0
+	missileLifespan     = 5.0
+	missileHealth       = 15.0
 )
 
-var projectileSize = rl.NewVector2(4, 12)
+var (
+	projectileSize = rl.NewVector2(4, 12)
+	missileSize    = rl.NewVector2(6, 18)
+)
+
+// ProjectileKind distinguishes an ordinary PDC round from a missile, which
+// accelerates to a cruise speed, carries health, and detonates for area damage.
+type ProjectileKind int
+
+const (
+	projectilePDC ProjectileKind = iota
+	projectileMissile
+)
 
 type Projectile struct {
 	Position rl.Vector2
@@ -37,6 +64,10 @@ type Projectile struct {
 	// Owner is the ship that fired the round; rounds pass harmlessly through
 	// their own ship but strike everything else.
 	Owner *Ship
+	Kind  ProjectileKind
+	// Health is only meaningful for missiles: a missile shot down in flight (its
+	// health driven to zero by an enemy's rounds) is destroyed without detonating.
+	Health float32
 }
 
 func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
@@ -47,10 +78,47 @@ func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Pro
 		Rotation: rotation,
 		Size:     projectileSize,
 		Owner:    owner,
+		Kind:     projectilePDC,
+	}
+}
+
+// NewMissile builds a missile launched from owner: it starts slow (velocity is
+// the launch velocity along the aim) and accelerates toward a cruise speed in
+// Update, and it carries health so it can be shot down before impact.
+func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
+	return &Projectile{
+		Position: pos,
+		Velocity: velocity,
+		Lifespan: missileLifespan,
+		Rotation: rotation,
+		Size:     missileSize,
+		Owner:    owner,
+		Kind:     projectileMissile,
+		Health:   missileHealth,
 	}
 }
 
 func (p *Projectile) Update(dt float32) {
+	if p.Kind == projectileMissile {
+		// The motor builds speed along the current heading up to the cruise cap;
+		// scaling the existing velocity keeps the direction fixed (missiles fly
+		// straight along their launch aim).
+		speed := float32(math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y)))
+		if speed > 0 {
+			newSpeed := speed + missileAcceleration*dt
+			if newSpeed > missileCruiseSpeed {
+				newSpeed = missileCruiseSpeed
+			}
+			scale := newSpeed / speed
+			p.Velocity.X *= scale
+			p.Velocity.Y *= scale
+		}
+		p.Position.X += p.Velocity.X * dt
+		p.Position.Y += p.Velocity.Y * dt
+		p.Lifespan -= dt
+		return
+	}
+
 	p.Position.X += p.Velocity.X * dt
 	p.Position.Y += p.Velocity.Y * dt
 	decay := float32(math.Exp(float64(-pdcProjectileDrag * dt)))
@@ -66,25 +134,50 @@ func (p *Projectile) Expired() bool {
 func (p *Projectile) Draw() {
 	rec := rl.NewRectangle(p.Position.X, p.Position.Y, p.Size.X, p.Size.Y)
 	origin := rl.NewVector2(p.Size.X/2, p.Size.Y/2)
-	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, rl.Yellow)
-}
-
-// fireInterval is the cadence between this PDC's shots: a slow junk PDC fires
-// at a third the rate of a standard PDC. Each PDC keeps its own cadence, so a
-// slow mount never drags down the ship's other mounts.
-func (t PartType) fireInterval() float32 {
-	if t == PartSlowPDC {
-		return slowPDCFireInterval
+	color := rl.Yellow
+	if p.Kind == projectileMissile {
+		color = rl.Red
 	}
-	return pdcFireInterval
+	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, color)
 }
 
-// FirePDCs advances each PDC's independent cooldown and returns rounds from the
-// mounts ready to fire while the trigger is held. Each mount aims itself at the
-// controls' fire target (a world-frame offset from the ship origin) as long as
-// that target lies within pdcHalfArc of the mount's facing; a mount whose
-// target is outside its arc holds fire until the target swings back in.
-func (s *Ship) FirePDCs(dt float32, controls Controls) []*Projectile {
+// isWeapon reports whether a part is a firing mount handled by FireWeapons.
+func (t PartType) isWeapon() bool {
+	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher
+}
+
+// fireInterval is the cadence between this mount's shots: a slow junk PDC fires
+// at a third the rate of a standard PDC, and a missile launcher fires far more
+// slowly still. Each mount keeps its own cadence, so one slow mount never drags
+// down the ship's others.
+func (t PartType) fireInterval() float32 {
+	switch t {
+	case PartSlowPDC:
+		return slowPDCFireInterval
+	case PartMissileLauncher:
+		return missileFireInterval
+	default:
+		return pdcFireInterval
+	}
+}
+
+// halfArc is how far a mount may slew its aim to either side of its mount facing.
+// A missile launcher has a much tighter arc than a PDC.
+func (t PartType) halfArc() float32 {
+	if t == PartMissileLauncher {
+		return missileHalfArc
+	}
+	return pdcHalfArc
+}
+
+// FireWeapons advances each weapon mount's independent cooldown and returns the
+// rounds from mounts ready to fire while the trigger is held. Each mount aims
+// itself at the controls' fire target (a world-frame offset from the ship
+// origin) as long as that target lies within the mount's arc; a mount whose
+// target is outside its arc holds fire until the target swings back in. PDCs
+// spit fast, short-ranged rounds; missile launchers loose a slow, accelerating,
+// destructible missile.
+func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 	target := rl.NewVector2(
 		s.Position.X+controls.FireTarget.X,
 		s.Position.Y+controls.FireTarget.Y,
@@ -92,7 +185,7 @@ func (s *Ship) FirePDCs(dt float32, controls Controls) []*Projectile {
 
 	var shots []*Projectile
 	for c, part := range s.Parts {
-		if part.Type != PartPDC && part.Type != PartSlowPDC {
+		if !part.Type.isWeapon() {
 			continue
 		}
 
@@ -112,13 +205,20 @@ func (s *Ship) FirePDCs(dt float32, controls Controls) []*Projectile {
 		}
 		aim := heading(dx, dy)
 		mount := s.Direction + part.Facing.angle()
-		if math.Abs(float64(angleDiff(aim, mount))) > pdcHalfArc {
+		if math.Abs(float64(angleDiff(aim, mount))) > float64(part.Type.halfArc()) {
 			continue
 		}
 		part.FireCooldown = part.Type.fireInterval()
 
 		dirX, dirY := dx/dist, dy/dist
 		pos := rl.NewVector2(center.X+dirX*cellSize*0.5, center.Y+dirY*cellSize*0.5)
+		if part.Type == PartMissileLauncher {
+			// A missile is self-propelled: it leaves the tube slowly along the aim
+			// (not inheriting the ship's velocity) and accelerates from there.
+			vel := rl.NewVector2(dirX*missileLaunchSpeed, dirY*missileLaunchSpeed)
+			shots = append(shots, NewMissile(s, pos, vel, aim))
+			continue
+		}
 		vel := rl.NewVector2(
 			s.Velocity.X+dirX*pdcMuzzleSpeed,
 			s.Velocity.Y+dirY*pdcMuzzleSpeed,
