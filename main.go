@@ -50,11 +50,19 @@ func main() {
 	src := rl.NewRectangle(0, 0, float32(target.Texture.Width), -float32(target.Texture.Height))
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
+	asteroids := DefaultAsteroids()
+	physics := NewPhysics(ship)
+
 	for !rl.WindowShouldClose() {
+		physics.Update(float64(rl.GetFrameTime()))
+
 		// Draw the game to the low-resolution render texture.
 		rl.BeginTextureMode(target)
 		rl.ClearBackground(rl.RayWhite)
 		rl.BeginMode2D(camera)
+		for _, a := range asteroids {
+			a.Draw()
+		}
 		ship.Draw()
 		rl.EndMode2D()
 		rl.EndTextureMode()
