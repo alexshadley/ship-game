@@ -143,6 +143,77 @@ func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 	)
 }
 
+// worldVec rotates a vector expressed in the ship's local frame into world space
+// by the ship's direction, without applying its position (unlike worldPoint).
+func (s *Ship) worldVec(lx, ly float32) rl.Vector2 {
+	sin := float32(math.Sin(float64(s.Direction)))
+	cos := float32(math.Cos(float64(s.Direction)))
+	return rl.NewVector2(lx*cos-ly*sin, lx*sin+ly*cos)
+}
+
+// ExhaustSource is a point on the ship where exhaust is emitted, together with
+// the outward (world-space, unit) direction the plume travels.
+type ExhaustSource struct {
+	Pos rl.Vector2
+	Dir rl.Vector2
+}
+
+// EngineExhaustSources returns one source per engine, at the rear face of the
+// engine's cell and pointing out its back (opposite the forward thrust).
+func (s *Ship) EngineExhaustSources() []ExhaustSource {
+	var out []ExhaustSource
+	for c, p := range s.Parts {
+		if p.Type != PartEngine {
+			continue
+		}
+		// An engine's facing points to its rear, so exhaust leaves along it.
+		off := p.Facing.offset()
+		dx, dy := float32(off.X), float32(off.Y)
+		cx := float32(c.X) * cellSize
+		cy := float32(c.Y) * cellSize
+		out = append(out, ExhaustSource{
+			Pos: s.worldPoint(cx+dx*cellSize*0.5, cy+dy*cellSize*0.5),
+			Dir: s.worldVec(dx, dy),
+		})
+	}
+	return out
+}
+
+// ControlThrusterExhaustSources returns the firing nozzle of each control
+// thruster for the given turn: -1 for a left turn (A), +1 for a right turn (D).
+// A thruster expels exhaust from the nozzle whose reaction spins the ship the
+// requested way, so the visible plume matches the applied torque.
+func (s *Ship) ControlThrusterExhaustSources(turn int) []ExhaustSource {
+	var out []ExhaustSource
+	for c, p := range s.Parts {
+		if p.Type != PartControlThruster {
+			continue
+		}
+		// Thrust axis is perpendicular to the attachment side (see nozzle drawing).
+		off := p.Facing.offset()
+		tx, ty := float32(-off.Y), float32(off.X)
+		cx := float32(c.X) * cellSize
+		cy := float32(c.Y) * cellSize
+
+		// Expelling along +thrust pushes the ship along -thrust; about the cockpit
+		// origin that yields torque of sign(cx*ty - cy*tx) for the -thrust nozzle,
+		// so firing +sign here turns left. Flip for a right turn.
+		sign := float32(1)
+		if cx*ty-cy*tx < 0 {
+			sign = -1
+		}
+		if turn > 0 {
+			sign = -sign
+		}
+		dx, dy := sign*tx, sign*ty
+		out = append(out, ExhaustSource{
+			Pos: s.worldPoint(cx+dx*cellSize*0.42, cy+dy*cellSize*0.42),
+			Dir: s.worldVec(dx, dy),
+		})
+	}
+	return out
+}
+
 // Draw renders the ship's parts at its current position and orientation.
 func (s *Ship) Draw() {
 	rotDeg := s.Direction * 180 / math.Pi

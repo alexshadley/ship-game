@@ -53,6 +53,7 @@ func main() {
 
 	asteroids := DefaultAsteroids()
 	physics := NewPhysics(ship, asteroids)
+	particles := NewParticleSystem()
 
 	var projectiles []*Projectile
 	// Time until the cannons may fire again while Shift is held.
@@ -61,6 +62,11 @@ func main() {
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 		physics.Update(float64(dt))
+
+		// Spawn exhaust from whatever is firing this frame, then advance all
+		// particles. Emission reads the same keys the physics uses for thrust.
+		emitExhaust(ship, particles)
+		particles.Update(dt)
 
 		// Hold Shift to fire the cannons on a fixed interval. Releasing the key
 		// resets the cooldown so the first shot on the next press is immediate.
@@ -94,6 +100,8 @@ func main() {
 		for _, a := range asteroids {
 			a.Draw()
 		}
+		// Exhaust draws before the ship so plumes read as coming out from under it.
+		particles.Draw()
 		for _, pr := range projectiles {
 			pr.Draw()
 		}
@@ -109,5 +117,33 @@ func main() {
 		rl.ClearBackground(rl.Black)
 		rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
 		rl.EndDrawing()
+	}
+}
+
+// emitExhaust spawns exhaust particles for each engine and control thruster that
+// is firing this frame, mirroring the thrust controls: W fires the engines and
+// A/D fire the control thrusters.
+func emitExhaust(ship *Ship, particles *ParticleSystem) {
+	if rl.IsKeyDown(rl.KeyW) {
+		for _, src := range ship.EngineExhaustSources() {
+			for i := 0; i < engineParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, engineExhaustColor)
+			}
+		}
+	}
+
+	// A and D held together cancel out to no turn, so emit no thruster plume.
+	turn := 0
+	if a, d := rl.IsKeyDown(rl.KeyA), rl.IsKeyDown(rl.KeyD); a && !d {
+		turn = -1
+	} else if d && !a {
+		turn = 1
+	}
+	if turn != 0 {
+		for _, src := range ship.ControlThrusterExhaustSources(turn) {
+			for i := 0; i < thrusterParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, thrusterExhaustColor)
+			}
+		}
 	}
 }
