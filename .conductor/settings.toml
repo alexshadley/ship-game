@@ -1,0 +1,15 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+# Fetch deps and do a full build on workspace creation. This warms the Go
+# (and cgo/C) build cache, which is the slow part of building raylib, so the
+# run script's incremental rebuild is near-instant.
+setup = "go mod download && go build -o ship-game ."
+run_mode = "concurrent"
+
+[scripts.run.game]
+# Incremental rebuild (fast once the cache is warm) then launch, so the game
+# always reflects the latest code.
+command = "go build -o ship-game . && ./ship-game"
+default = true
+icon = "gamepad-2"
