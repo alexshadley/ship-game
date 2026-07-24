@@ -88,6 +88,27 @@ func (s *Ship) Validate() error {
 	if len(seen) != len(s.Parts) {
 		return fmt.Errorf("%d part(s) not connected to the cockpit", len(s.Parts)-len(seen))
 	}
+
+	// A control thruster attaches to the ship on exactly one side, and its Facing
+	// must point toward that attached part (it thrusts along the free axis).
+	for c, p := range s.Parts {
+		if p.Type != PartControlThruster {
+			continue
+		}
+		attached := 0
+		for _, n := range c.neighbors() {
+			if _, ok := s.Parts[n]; ok {
+				attached++
+			}
+		}
+		if attached != 1 {
+			return fmt.Errorf("control thruster at {%d,%d} attaches on %d sides, expected exactly 1", c.X, c.Y, attached)
+		}
+		off := p.Facing.offset()
+		if _, ok := s.Parts[GridCoord{c.X + off.X, c.Y + off.Y}]; !ok {
+			return fmt.Errorf("control thruster at {%d,%d} faces %s, but no part is attached on that side", c.X, c.Y, p.Facing)
+		}
+	}
 	return nil
 }
 
@@ -102,6 +123,9 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	s.AddPart(GridCoord{X: 0, Y: 2}, NewPart(PartBlock, FacingUp))
 	s.AddPart(GridCoord{X: -1, Y: 2}, NewPart(PartEngine, FacingDown))
 	s.AddPart(GridCoord{X: 1, Y: 2}, NewPart(PartEngine, FacingDown))
+	// Wing-tip control thrusters, each attached on its inboard side only.
+	s.AddPart(GridCoord{X: -2, Y: 1}, NewPart(PartControlThruster, FacingRight))
+	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartControlThruster, FacingLeft))
 	return s
 }
 
@@ -134,6 +158,8 @@ func (s *Ship) Draw() {
 			s.drawFacingIndicator(c, p.Facing, rl.DarkBlue)
 		case PartEngine:
 			s.drawFacingIndicator(c, p.Facing, rl.Red)
+		case PartControlThruster:
+			s.drawControlThrusterNozzles(c, p.Facing)
 		}
 	}
 }
@@ -174,4 +200,31 @@ func (s *Ship) drawFacingIndicator(c GridCoord, facing Facing, color rl.Color) {
 		w[i] = s.worldPoint(cx+rx, cy+ry)
 	}
 	rl.DrawTriangle(w[0], w[1], w[2], color)
+}
+
+// drawControlThrusterNozzles draws a control thruster's two nozzles, one firing
+// to each side of its attachment axis. Like drawFacingIndicator, every offset is
+// kept within ±cellSize/2 so the thruster never draws outside its own cell.
+func (s *Ship) drawControlThrusterNozzles(c GridCoord, facing Facing) {
+	cx := float32(c.X) * cellSize
+	cy := float32(c.Y) * cellSize
+
+	// Thrust axis (perpendicular to the attachment side) and attachment axis, as
+	// unit steps in the local pixel frame. The two arrows point along ±thrust.
+	off := facing.offset()
+	tx, ty := float32(-off.Y), float32(off.X) // thrust axis
+	ax, ay := float32(off.X), float32(off.Y)  // attachment axis (arrow base spread)
+
+	for _, sign := range []float32{1, -1} {
+		dx, dy := sign*tx, sign*ty
+		tip := s.worldPoint(cx+dx*cellSize*0.42, cy+dy*cellSize*0.42)
+		b1 := s.worldPoint(cx+dx*cellSize*0.15+ax*cellSize*0.16, cy+dy*cellSize*0.15+ay*cellSize*0.16)
+		b2 := s.worldPoint(cx+dx*cellSize*0.15-ax*cellSize*0.16, cy+dy*cellSize*0.15-ay*cellSize*0.16)
+		// Keep a consistent winding on both sides so neither gets back-face culled.
+		if sign > 0 {
+			rl.DrawTriangle(tip, b1, b2, rl.Violet)
+		} else {
+			rl.DrawTriangle(tip, b2, b1, rl.Violet)
+		}
+	}
 }

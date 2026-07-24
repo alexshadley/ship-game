@@ -16,6 +16,10 @@ const (
 	PartBlock
 	// PartEngine produces forward thrust.
 	PartEngine
+	// PartControlThruster is a maneuvering thruster that fires to either side.
+	// It attaches to the ship on exactly one side; its Facing points toward that
+	// attached side, and it thrusts along the perpendicular axis.
+	PartControlThruster
 )
 
 func (t PartType) String() string {
@@ -26,6 +30,8 @@ func (t PartType) String() string {
 		return "Block"
 	case PartEngine:
 		return "Engine"
+	case PartControlThruster:
+		return "Control Thruster"
 	default:
 		return "Unknown"
 	}
@@ -72,6 +78,22 @@ func (f Facing) String() string {
 	}
 }
 
+// offset returns the unit grid step in the direction of f.
+func (f Facing) offset() GridCoord {
+	switch f {
+	case FacingUp:
+		return GridCoord{0, -1}
+	case FacingRight:
+		return GridCoord{1, 0}
+	case FacingDown:
+		return GridCoord{0, 1}
+	case FacingLeft:
+		return GridCoord{-1, 0}
+	default:
+		return GridCoord{}
+	}
+}
+
 // GridCoord is an integer position on a ship's part grid. The cockpit sits at
 // {0,0}; +X is right and +Y is toward the rear of the ship.
 type GridCoord struct {
@@ -107,6 +129,8 @@ var partSpecs = map[PartType]partSpec{
 	PartCockpit: {health: 150, weight: 3.0, color: rl.SkyBlue},
 	PartBlock:   {health: 100, weight: 2.0, color: rl.Gray},
 	PartEngine:  {health: 80, weight: 2.5, color: rl.Orange},
+
+	PartControlThruster: {health: 60, weight: 1.5, color: rl.Purple},
 }
 
 // NewPart builds a part of the given type and facing with default health/weight.
