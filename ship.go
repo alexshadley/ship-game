@@ -183,6 +183,9 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// ahead of them are empty rather than walled off by the nose blocks.
 	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartPDC, FacingUp))
 	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartPDC, FacingUp))
+	// A missile launcher caps the nose, firing straight ahead over the gap between
+	// the forward blocks.
+	s.AddPart(GridCoord{X: 0, Y: -3}, NewPart(PartMissileLauncher, FacingUp))
 	return s
 }
 
@@ -393,6 +396,8 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawControlThrusterNozzlesAt(center, baseAngle, p.Facing)
 	case PartPDC, PartSlowPDC:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
+	case PartMissileLauncher:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
 	}
 }
 
