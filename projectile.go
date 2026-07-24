@@ -51,20 +51,19 @@ func (p *Projectile) Draw() {
 	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, rl.Yellow)
 }
 
-// FireInterval is the cooldown between this ship's volleys, governed by its
-// slowest cannon: a ship packing only weak cannons fires at a third the standard
-// rate, while any standard cannon keeps it at the full cadence.
-func (s *Ship) FireInterval() float32 {
-	interval := float32(cannonFireInterval)
-	for _, part := range s.Parts {
-		if part.Type == PartWeakCannon && weakCannonFireInterval > interval {
-			interval = weakCannonFireInterval
-		}
+// fireInterval is the cadence between this cannon's shots: a weak junk cannon
+// fires at a third the rate of a standard cannon. Each cannon keeps its own
+// cadence, so a slow cannon never drags down the ship's other cannons.
+func (t PartType) fireInterval() float32 {
+	if t == PartWeakCannon {
+		return weakCannonFireInterval
 	}
-	return interval
+	return cannonFireInterval
 }
 
-func (s *Ship) FireCannons() []*Projectile {
+// FireCannons advances each cannon's independent cooldown and returns shots from
+// the cannons that are ready to fire while firing is held.
+func (s *Ship) FireCannons(dt float32, firing bool) []*Projectile {
 	sin := float32(math.Sin(float64(s.Direction)))
 	cos := float32(math.Cos(float64(s.Direction)))
 
@@ -73,6 +72,12 @@ func (s *Ship) FireCannons() []*Projectile {
 		if part.Type != PartCannon && part.Type != PartWeakCannon {
 			continue
 		}
+
+		part.FireCooldown -= dt
+		if !firing || part.FireCooldown > 0 {
+			continue
+		}
+		part.FireCooldown = part.Type.fireInterval()
 
 		off := part.Facing.offset()
 		ldx, ldy := float32(off.X), float32(off.Y)
