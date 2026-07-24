@@ -43,69 +43,41 @@ const (
 	collisionAsteroid cp.CollisionType = 2
 )
 
-// Physics owns the Chipmunk space and the ship's rigid body, and keeps the
-// ship's Position/Direction/Velocity in sync with the simulation.
+// shipBody binds a ship to its rigid body and controller. Each frame the
+// controller emits Controls (thrust/turn/fire) that drive the body; the body's
+// resulting motion is synced back onto the ship. Every ship — player or enemy —
+// runs through one of these, so they all obey the same physics.
+type shipBody struct {
+	ship       *Ship
+	body       *cp.Body
+	controller Controller
+
+	engines      int     // number of PartEngine parts (forward thrust)
+	thrusters    int     // number of PartControlThruster parts (turning)
+	fireCooldown float32 // time until the cannons may fire again
+	wantFire     bool    // fire signal captured before the step, applied after
+}
+
+// Physics owns the Chipmunk space and every rigid body in it, and keeps each
+// ship's and asteroid's kinematic state in sync with the simulation.
 type Physics struct {
 	space *cp.Space
-	body  *cp.Body
-	ship  *Ship
+	ships []*shipBody
 
 	// asteroids and asteroidBodies run in parallel: asteroidBodies[i] is the
 	// rigid body simulating asteroids[i], synced back onto it each step.
 	asteroids      []*Asteroid
 	asteroidBodies []*cp.Body
-
-	engines   int // number of PartEngine parts (forward thrust)
-	thrusters int // number of PartControlThruster parts (turning)
 }
 
-// NewPhysics builds a space and a single rigid body for the ship. The body's
-// center of gravity is the cockpit origin ({0,0} in the part grid), so the
-// simulation rotates the ship about the same point the renderer does. The
-// asteroids are added as their own circular bodies so they bounce off the ship
+// NewPhysics builds a space containing the asteroids. Ships are added afterward
+// with AddShip. The asteroids are circular bodies so they bounce off the ships
 // and off one another.
-func NewPhysics(ship *Ship, asteroids []*Asteroid) *Physics {
+func NewPhysics(asteroids []*Asteroid) *Physics {
 	space := cp.NewSpace()
 	// Global drag: no gravity, but every body sheds velocity over time so the
 	// ship glides to a halt instead of drifting forever.
 	space.SetDamping(spaceDamping)
-
-	// Sum mass and rotational inertia about the cockpit origin. Each part is a
-	// cellSize box offset by its grid position, so its contribution is the box's
-	// own moment plus the parallel-axis term m·r².
-	var mass, moment float64
-	var engines, thrusters int
-	for c, p := range ship.Parts {
-		m := float64(p.Weight)
-		x := float64(c.X) * cellSize
-		y := float64(c.Y) * cellSize
-		mass += m
-		moment += cp.MomentForBox(m, cellSize, cellSize) + m*(x*x+y*y)
-
-		switch p.Type {
-		case PartEngine:
-			engines++
-		case PartControlThruster:
-			thrusters++
-		}
-	}
-
-	body := cp.NewBody(mass, moment)
-	body.SetPosition(cp.Vector{X: float64(ship.Position.X), Y: float64(ship.Position.Y)})
-	body.SetAngle(float64(ship.Direction))
-	space.AddBody(body)
-
-	// Give each part a box collision shape at its grid offset so the ship's
-	// outline is what asteroids strike. The shape carries a pointer to its part
-	// so the collision handler knows exactly which part took the hit.
-	for c, p := range ship.Parts {
-		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
-		shape := space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
-		shape.SetCollisionType(collisionShip)
-		shape.SetElasticity(shipElasticity)
-		shape.SetFriction(0.4)
-		shape.UserData = p
-	}
 
 	// Add each asteroid as its own circular body. A custom velocity function
 	// cancels the global damping for asteroids only, so rocks coast through space
@@ -132,12 +104,8 @@ func NewPhysics(ship *Ship, asteroids []*Asteroid) *Physics {
 
 	p := &Physics{
 		space:          space,
-		body:           body,
-		ship:           ship,
 		asteroids:      asteroids,
 		asteroidBodies: asteroidBodies,
-		engines:        engines,
-		thrusters:      thrusters,
 	}
 
 	// On every ship–asteroid contact, damage the struck part in proportion to the
@@ -159,47 +127,105 @@ func NewPhysics(ship *Ship, asteroids []*Asteroid) *Physics {
 	return p
 }
 
-// Update reads thrust input, steps the simulation by dt seconds, and writes the
-// resulting motion back onto the ship.
-//
-//	W     - fire all engines: forward thrust along the ship's heading.
-//	A / D - fire the control thrusters: turn left / right.
-func (p *Physics) Update(dt float64) {
+// AddShip builds a rigid body for ship and registers controller as the source of
+// its Controls. The body's center of gravity is the cockpit origin ({0,0} in the
+// part grid), so the simulation rotates the ship about the same point the
+// renderer does. Each part gets a box collision shape at its grid offset carrying
+// a pointer to its part, so the collision handler knows exactly which part is hit.
+func (p *Physics) AddShip(ship *Ship, controller Controller) {
+	// Sum mass and rotational inertia about the cockpit origin. Each part is a
+	// cellSize box offset by its grid position, so its contribution is the box's
+	// own moment plus the parallel-axis term m·r².
+	var mass, moment float64
+	var engines, thrusters int
+	for c, part := range ship.Parts {
+		m := float64(part.Weight)
+		x := float64(c.X) * cellSize
+		y := float64(c.Y) * cellSize
+		mass += m
+		moment += cp.MomentForBox(m, cellSize, cellSize) + m*(x*x+y*y)
+
+		switch part.Type {
+		case PartEngine:
+			engines++
+		case PartControlThruster:
+			thrusters++
+		}
+	}
+
+	body := cp.NewBody(mass, moment)
+	body.SetPosition(cp.Vector{X: float64(ship.Position.X), Y: float64(ship.Position.Y)})
+	body.SetAngle(float64(ship.Direction))
+	p.space.AddBody(body)
+
+	for c, part := range ship.Parts {
+		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
+		shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
+		shape.SetCollisionType(collisionShip)
+		shape.SetElasticity(shipElasticity)
+		shape.SetFriction(0.4)
+		shape.UserData = part
+	}
+
+	p.ships = append(p.ships, &shipBody{
+		ship:       ship,
+		body:       body,
+		controller: controller,
+		engines:    engines,
+		thrusters:  thrusters,
+	})
+}
+
+// Update pulls Controls from every ship's controller, applies them as force and
+// torque, steps the simulation by dt seconds, and writes the resulting motion
+// back onto each ship. Ships that fired this step spawn projectiles, which are
+// returned. Each ship's Controls come from either player input or AI, but the
+// force/torque/fire handling below is identical for all of them.
+func (p *Physics) Update(dt float64) []*Projectile {
 	// GetFrameTime reports 0 on the first frame and can spike after a stall; clamp
 	// to a sane range so the integrator never divides by zero or takes a huge step.
 	if dt <= 0 {
-		return
+		return nil
 	}
 	if dt > 1.0/30 {
 		dt = 1.0 / 30
 	}
 
-	// Rebuild the force/torque accumulators from scratch each frame so releasing
-	// a key immediately stops that input.
-	force := cp.Vector{}
-	if rl.IsKeyDown(rl.KeyW) {
-		// Forward is -Y in the ship's local frame (toward the nose/cockpit).
-		local := cp.Vector{X: 0, Y: -engineThrust * float64(p.engines)}
-		force = p.body.Rotation().Rotate(local)
-	}
-	p.body.SetForce(force)
+	// Apply each ship's controls. Force and torque are rebuilt from scratch every
+	// frame so dropping a control (key up, or the AI easing off) stops it at once.
+	for _, sb := range p.ships {
+		controls := sb.controller.Controls(float32(dt))
 
-	var torque float64
-	if rl.IsKeyDown(rl.KeyA) {
-		torque -= thrusterTorque * float64(p.thrusters)
+		force := cp.Vector{}
+		if controls.Thrust != 0 {
+			// Forward is -Y in the ship's local frame (toward the nose/cockpit).
+			local := cp.Vector{X: 0, Y: -engineThrust * float64(sb.engines) * float64(controls.Thrust)}
+			force = sb.body.Rotation().Rotate(local)
+		}
+		sb.body.SetForce(force)
+		sb.body.SetTorque(thrusterTorque * float64(sb.thrusters) * float64(controls.Turn))
+		sb.wantFire = controls.Fire
 	}
-	if rl.IsKeyDown(rl.KeyD) {
-		torque += thrusterTorque * float64(p.thrusters)
-	}
-	p.body.SetTorque(torque)
 
 	p.space.Step(dt)
 
-	pos := p.body.Position()
-	vel := p.body.Velocity()
-	p.ship.Position = rl.NewVector2(float32(pos.X), float32(pos.Y))
-	p.ship.Direction = float32(p.body.Angle())
-	p.ship.Velocity = rl.NewVector2(float32(vel.X), float32(vel.Y))
+	// Sync each body back onto its ship, then resolve firing (after the step so the
+	// muzzle sits at the ship's post-step position).
+	var projectiles []*Projectile
+	for _, sb := range p.ships {
+		pos := sb.body.Position()
+		vel := sb.body.Velocity()
+		sb.ship.Position = rl.NewVector2(float32(pos.X), float32(pos.Y))
+		sb.ship.Direction = float32(sb.body.Angle())
+		sb.ship.Velocity = rl.NewVector2(float32(vel.X), float32(vel.Y))
+		sb.ship.AngularVelocity = float32(sb.body.AngularVelocity())
+
+		sb.fireCooldown -= float32(dt)
+		if sb.wantFire && sb.fireCooldown <= 0 {
+			projectiles = append(projectiles, sb.ship.FireCannons()...)
+			sb.fireCooldown = cannonFireInterval
+		}
+	}
 
 	// Write each asteroid body's motion back onto the asteroid it simulates.
 	for i, a := range p.asteroids {
@@ -208,4 +234,6 @@ func (p *Physics) Update(dt float64) {
 		a.Position = rl.NewVector2(float32(apos.X), float32(apos.Y))
 		a.Velocity = rl.NewVector2(float32(avel.X), float32(avel.Y))
 	}
+
+	return projectiles
 }

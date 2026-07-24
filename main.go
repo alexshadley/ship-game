@@ -52,27 +52,24 @@ func main() {
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship, asteroids)
+	physics := NewPhysics(asteroids)
+
+	// The player and the AI enemies are all run by the physics from Controls; only
+	// the source of those controls (keyboard vs. AI) differs.
+	physics.AddShip(ship, PlayerInput{})
+	enemies, enemyAIs := DefaultEnemies(ship)
+	for i, e := range enemies {
+		physics.AddShip(e, enemyAIs[i])
+	}
 
 	var projectiles []*Projectile
-	// Time until the cannons may fire again while Shift is held.
-	var fireCooldown float32
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
-		physics.Update(float64(dt))
 
-		// Hold Shift to fire the cannons on a fixed interval. Releasing the key
-		// resets the cooldown so the first shot on the next press is immediate.
-		if rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift) {
-			fireCooldown -= dt
-			if fireCooldown <= 0 {
-				projectiles = append(projectiles, ship.FireCannons()...)
-				fireCooldown = cannonFireInterval
-			}
-		} else {
-			fireCooldown = 0
-		}
+		// Step the whole simulation. Every ship pulls its own Controls, thrusts and
+		// turns under the same physics, and any that fired return projectiles.
+		projectiles = append(projectiles, physics.Update(float64(dt))...)
 
 		// Advance projectiles and drop any that have expired.
 		live := projectiles[:0]
@@ -97,11 +94,14 @@ func main() {
 		for _, pr := range projectiles {
 			pr.Draw()
 		}
+		for _, e := range enemies {
+			e.Draw()
+		}
 		ship.Draw()
 		rl.EndMode2D()
 
 		// Overlay the minimap in screen (texture) space, on top of the world.
-		DrawMinimap(ship, asteroids)
+		DrawMinimap(ship, asteroids, enemies)
 		rl.EndTextureMode()
 
 		// Scale the render texture up to the full window.
