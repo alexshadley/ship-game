@@ -16,7 +16,7 @@ const (
 	cannonFireInterval = 0.18
 	// projectileLifespan is how long, in seconds, a projectile lives before it
 	// expires and is removed.
-	projectileLifespan = 1.5
+	projectileLifespan = 15.0
 )
 
 // projectileSize is the box dimensions of a projectile in pixels: X across its
