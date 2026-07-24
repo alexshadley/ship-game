@@ -34,6 +34,11 @@ const (
 	// damagePerImpulse is how much part health is removed per unit of collision
 	// impulse. Harder hits (bigger, faster asteroids) do proportionally more damage.
 	damagePerImpulse = 0.05
+
+	// projectileDamage is the part health removed by a single projectile hit. It's
+	// a flat amount (unlike asteroid impacts, which scale with impulse), so cannon
+	// fire chews through parts at a predictable rate.
+	projectileDamage = 20.0
 )
 
 // Collision types tag shapes so the space can route ship↔asteroid contacts to
@@ -125,6 +130,47 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	}
 
 	return p
+}
+
+// ResolveProjectiles tests every projectile against every ship part and every
+// asteroid, consuming any that connect. A projectile that strikes a ship part
+// removes projectileDamage from that part's health; one that strikes an asteroid
+// is destroyed with no effect (rocks shrug off cannon fire). Projectiles carry no
+// team, so a ship's own shots can strike it — friendly fire is intentional. The
+// surviving projectiles are returned (the input slice is filtered in place).
+func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
+	live := projectiles[:0]
+	for _, pr := range projectiles {
+		if p.projectileHit(pr) {
+			continue
+		}
+		live = append(live, pr)
+	}
+	return live
+}
+
+// projectileHit reports whether pr connected with a ship part or an asteroid this
+// frame, damaging a struck part. It tests the projectile's center point against
+// each ship's grid and each asteroid's disc — cheap for the handful of shots in
+// flight and precise enough at these speeds and sizes.
+func (p *Physics) projectileHit(pr *Projectile) bool {
+	for _, sb := range p.ships {
+		if part := sb.ship.partAtWorld(pr.Position); part != nil {
+			part.Health -= projectileDamage
+			if part.Health < 0 {
+				part.Health = 0
+			}
+			return true
+		}
+	}
+	for _, a := range p.asteroids {
+		dx := pr.Position.X - a.Position.X
+		dy := pr.Position.Y - a.Position.Y
+		if dx*dx+dy*dy <= a.Size*a.Size {
+			return true
+		}
+	}
+	return false
 }
 
 // AddShip builds a rigid body for ship and registers controller as the source of

@@ -84,6 +84,10 @@ func main() {
 		}
 		projectiles = live
 
+		// Resolve hits: a projectile that strikes a ship part damages it, and any
+		// projectile that hits a ship or asteroid is consumed.
+		projectiles = physics.ResolveProjectiles(projectiles)
+
 		// Follow the ship: keep it centered (with the one-cell downward nudge).
 		camera.Target = rl.NewVector2(ship.Position.X, ship.Position.Y+cellSize)
 
