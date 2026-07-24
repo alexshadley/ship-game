@@ -299,7 +299,7 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 func (p *Physics) projectileHit(pr *Projectile) bool {
 	// A spacewalking astronaut can be shot; a hit consumes the round and wounds them.
 	if p.player != nil && dist(pr.Position, p.player.Position) <= playerRadius {
-		p.damagePlayer(projectileDamage)
+		p.damagePlayer(float64(pr.Damage()))
 		return true
 	}
 	for _, sb := range p.ships {
@@ -311,7 +311,7 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 			// The projectile is consumed on contact either way; in god mode the
 			// player's ship simply shrugs it off without losing health.
 			if !p.playerInvincible(sb) {
-				part.Health -= projectileDamage
+				part.Health -= pr.Damage()
 				if part.Health < 0 {
 					part.Health = 0
 				}
@@ -333,7 +333,7 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 		if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
 			continue
 		}
-		l.Part.Health -= projectileDamage
+		l.Part.Health -= pr.Damage()
 		if l.Part.Health <= 0 {
 			p.removeLoosePartAt(i)
 		}

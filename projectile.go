@@ -63,6 +63,19 @@ func (p *Projectile) Expired() bool {
 	return p.Lifespan <= 0
 }
 
+// Damage is the hit damage this round deals, scaled linearly by its speed: a
+// round leaving the muzzle deals full projectileDamage, and drag bleeds that off
+// in step with its speed until the round peters out. A round can't deal more than
+// full damage, so a fast-moving shooter's rounds still cap at projectileDamage.
+func (p *Projectile) Damage() float32 {
+	speed := math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y))
+	frac := speed / pdcMuzzleSpeed
+	if frac > 1 {
+		frac = 1
+	}
+	return projectileDamage * float32(frac)
+}
+
 func (p *Projectile) Draw() {
 	rec := rl.NewRectangle(p.Position.X, p.Position.Y, p.Size.X, p.Size.Y)
 	origin := rl.NewVector2(p.Size.X/2, p.Size.Y/2)
