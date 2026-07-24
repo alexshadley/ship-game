@@ -16,9 +16,9 @@ const (
 	windowWidth  = 1920
 	windowHeight = 1080
 
-	// Camera zoom for each mode. Piloting is zoomed out 2x to show the surrounding
+	// Camera zoom for each mode. Piloting is zoomed out 4x to show the surrounding
 	// space; a spacewalk zooms all the way in to 1:1 (parts at full pixel size).
-	pilotingZoom  = 0.5
+	pilotingZoom  = 0.25
 	spacewalkZoom = 1.0
 	// zoomEaseSpeed controls how quickly the camera zoom eases toward its target
 	// when switching modes (~1 second to settle); cameraFollowSpeed does the same
