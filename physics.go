@@ -536,7 +536,11 @@ func (p *Physics) destroyShip(sb *shipBody) {
 	s := sb.ship
 
 	// Fling each part off before the body goes away (spawnLoosePart reads it).
-	for c := range s.Parts {
+	// The cockpit is gone — it simply vanishes rather than scattering as debris.
+	for c, part := range s.Parts {
+		if part.Type == PartCockpit {
+			continue
+		}
 		p.spawnLoosePart(sb, c)
 	}
 	for part, shape := range sb.shipShapes {
