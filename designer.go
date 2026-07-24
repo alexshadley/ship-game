@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -38,12 +39,11 @@ const (
 	dsBottomBar  = 40
 )
 
-// palettePartTypes is the placeable set, in palette order (keys 1..6). The
-// cockpit is included so a fresh ship can be built from scratch; validation keeps
-// the "exactly one" rule.
-var palettePartTypes = []PartType{
-	PartCockpit, PartBlock, PartEngine, PartControlThruster, PartCannon, PartWeakCannon,
-}
+// palettePartTypes is the placeable set, in enum order, derived from AllPartTypes
+// so every part type is automatically available in the designer (numbered keys
+// 1..N). The cockpit is included so a fresh ship can be built from scratch;
+// validation keeps the "exactly one" rule.
+var palettePartTypes = AllPartTypes()
 
 func NewDesigner() *Designer {
 	d := &Designer{
@@ -164,7 +164,12 @@ func (d *Designer) updateNameInput() {
 }
 
 func (d *Designer) updateShortcuts() {
+	// Number-row shortcuts 1..9 select the first nine parts; any beyond that are
+	// still placeable via the palette buttons.
 	for i, t := range palettePartTypes {
+		if i >= 9 {
+			break
+		}
 		if rl.IsKeyPressed(rl.KeyOne + int32(i)) {
 			d.selType = t
 		}
@@ -386,7 +391,11 @@ func (d *Designer) drawNameField() {
 
 func (d *Designer) drawHint() {
 	rl.DrawRectangle(0, windowHeight-dsBottomBar, windowWidth, dsBottomBar, rl.NewColor(12, 14, 18, 255))
-	hint := "Left-click: place  ·  Right-click: remove  ·  1-6: part  ·  R: rotate  ·  Wheel: zoom"
+	partKeys := "1"
+	if n := min(len(palettePartTypes), 9); n > 1 {
+		partKeys = "1-" + strconv.Itoa(n)
+	}
+	hint := "Left-click: place  ·  Right-click: remove  ·  " + partKeys + ": part  ·  R: rotate  ·  Wheel: zoom"
 	rl.DrawText(hint, dsLeftPanelW+20, windowHeight-28, 18, uiTextDim)
 }
 

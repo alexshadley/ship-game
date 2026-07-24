@@ -22,7 +22,23 @@ const (
 	// PartWeakCannon is a junk cannon: it fires the same shot as PartCannon but at a
 	// third the cadence (see weakCannonFireInterval). Stock enemies carry one.
 	PartWeakCannon
+
+	// partTypeCount is the sentinel one past the last real part. Callers that need
+	// "every part" (the designer palette, the file-format parser) iterate up to it,
+	// so a new part type added above shows up everywhere automatically.
+	partTypeCount
 )
+
+// AllPartTypes returns every part type in enum order. Anything that lists the full
+// set of parts should derive from this rather than hand-maintaining a slice, so a
+// newly added part type is picked up automatically.
+func AllPartTypes() []PartType {
+	types := make([]PartType, 0, partTypeCount)
+	for t := PartCockpit; t < partTypeCount; t++ {
+		types = append(types, t)
+	}
+	return types
+}
 
 func (t PartType) String() string {
 	switch t {
