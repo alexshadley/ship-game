@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 
@@ -59,6 +60,10 @@ func main() {
 	var repair RepairTool
 	spacewalking := false
 
+	// Set once the astronaut's health runs out on a spacewalk. The simulation
+	// freezes and a GAME OVER banner takes over the HUD.
+	gameOver := false
+
 	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
 	// so scavenging and other mechanics can be tested without dying.
 	godMode := false
@@ -111,7 +116,9 @@ func main() {
 			}
 		}
 
-		if state == StatePlaying {
+		// Once the astronaut is gone the world stops simulating; only the render
+		// pass below keeps running so the GAME OVER banner stays on screen.
+		if state == StatePlaying && !gameOver {
 			// Toggle debug god mode (player ship invincible) with G.
 			if rl.IsKeyPressed(rl.KeyG) {
 				godMode = !godMode
@@ -123,7 +130,6 @@ func main() {
 				spawnEnemy()
 				enemySpawnTimer = enemySpawnInterval
 			}
-
 			if spacewalking {
 				if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
 					// Drop whatever's in hand back into space before climbing aboard.
@@ -158,6 +164,11 @@ func main() {
 			projectiles = live
 
 			projectiles = physics.ResolveProjectiles(projectiles)
+
+			// A spacewalk that runs the astronaut out of health ends the game.
+			if spacewalking && player.Dead() {
+				gameOver = true
+			}
 
 			targetZoom := float32(pilotingZoom)
 			if spacewalking {
@@ -220,6 +231,10 @@ func main() {
 			}
 			DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
 			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
+			// While out on a walk, show the astronaut's health as a top-left readout.
+			if spacewalking {
+				drawPlayerHealthHUD(player.Health)
+			}
 			// Debug indicator: show god-mode state and its toggle key in the corner.
 			debugLabel := "G: god mode OFF"
 			debugColor := rl.Gray
@@ -228,6 +243,9 @@ func main() {
 				debugColor = rl.Lime
 			}
 			rl.DrawText(debugLabel, 6, 6, 10, debugColor)
+			if gameOver {
+				drawGameOver()
+			}
 			rl.EndTextureMode()
 		}
 
@@ -246,6 +264,29 @@ func main() {
 		}
 		rl.EndDrawing()
 	}
+}
+
+// drawPlayerHealthHUD draws the astronaut's spacewalk health as a labeled bar in
+// the top-left, below the debug indicator.
+func drawPlayerHealthHUD(health float32) {
+	frac := health / playerMaxHealth
+	if frac < 0 {
+		frac = 0
+	}
+	const barX, barY int32 = 6, 20
+	const barWidth, barHeight int32 = 60, 6
+	rl.DrawRectangle(barX, barY, barWidth, barHeight, rl.NewColor(0, 0, 0, 160))
+	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
+	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
+	rl.DrawText(fmt.Sprintf("HP %d", int(math.Ceil(float64(health)))), barX+barWidth+4, barY-2, 10, rl.RayWhite)
+}
+
+// drawGameOver dims the frozen scene and centers a GAME OVER banner over it.
+func drawGameOver() {
+	rl.DrawRectangle(0, 0, gameWidth, gameHeight, rl.NewColor(0, 0, 0, 140))
+	const fontSize int32 = 40
+	w := rl.MeasureText("GAME OVER", fontSize)
+	rl.DrawText("GAME OVER", (gameWidth-w)/2, gameHeight/2-fontSize/2, fontSize, rl.Red)
 }
 
 func emitExhaust(ship *Ship, controls Controls, particles *ParticleSystem) {
