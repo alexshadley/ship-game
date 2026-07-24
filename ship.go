@@ -167,6 +167,24 @@ func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 	)
 }
 
+// partAtWorld returns the part occupying the ship cell that world point wp lands
+// in, or nil if the point is off the ship. It inverts worldPoint: shift by the
+// ship origin and un-rotate by the ship's heading to recover local pixels, then
+// round to the nearest cell (each part fills one cellSize box around its center).
+func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
+	sin := float32(math.Sin(float64(s.Direction)))
+	cos := float32(math.Cos(float64(s.Direction)))
+	dx := wp.X - s.Position.X
+	dy := wp.Y - s.Position.Y
+	lx := dx*cos + dy*sin
+	ly := -dx*sin + dy*cos
+	c := GridCoord{
+		X: int(math.Round(float64(lx / cellSize))),
+		Y: int(math.Round(float64(ly / cellSize))),
+	}
+	return s.Parts[c]
+}
+
 // worldVec rotates a vector expressed in the ship's local frame into world space
 // by the ship's direction, without applying its position (unlike worldPoint).
 func (s *Ship) worldVec(lx, ly float32) rl.Vector2 {
