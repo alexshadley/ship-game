@@ -106,6 +106,10 @@ func main() {
 		for _, e := range enemies {
 			e.Draw()
 		}
+		// Loose parts (broken-off debris) drift in the same world frame as the ship.
+		for _, l := range physics.LooseParts() {
+			l.Draw()
+		}
 		ship.Draw()
 		rl.EndMode2D()
 
