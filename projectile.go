@@ -8,7 +8,7 @@ import (
 
 const (
 	pdcMuzzleSpeed  = 1200.0
-	pdcFireInterval = 0.18
+	pdcFireInterval = 0.09
 	// slowPDCFireInterval is the junk PDC's cadence: a third the fire rate of a
 	// standard PDC.
 	slowPDCFireInterval = pdcFireInterval * 3

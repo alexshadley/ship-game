@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math"
+
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -10,35 +12,40 @@ import (
 const scavengeSnapRange = cellSize * 2
 
 // scavengePryDuration is how long, in seconds, the player must hold left click
-// over one of the ship's own parts before it pries loose into their hands.
+// over an exterior part before it pries loose into their hands.
 const scavengePryDuration = 1.0
 
-// Scavenger is the spacewalk part-scavenging tool: while outside the ship the
-// player holds left click over a loose part to pick it up, drags it to the ship
-// (where it snaps to the grid), presses R to rotate it, and releases to attach.
-// It owns the currently held part and the placement it resolved this frame, which
-// Draw renders as a ghost preview (red when the spot is invalid).
-type Scavenger struct {
-	// Held is the part being dragged, or nil when nothing is grabbed.
-	Held *Part
+// scavengeReach is how far, in world pixels, the astronaut can reach to grab a
+// loose part or pry one off a hull — twice the repair tool's reach. Grabbing and
+// prying are gated on it, and a part being dragged is towed only toward points
+// within it, so nothing can be salvaged or hauled from beyond arm's length.
+const scavengeReach = repairRange * 2
 
+// Scavenger is the spacewalk part-scavenging tool: while outside the ship the
+// player holds left click over a loose part to grab it (the part stays a physics
+// body, towed toward the cursor), drags it to the ship where it snaps to the grid,
+// presses R to rotate it, and releases to attach. The grabbed part itself lives in
+// the physics sim (see Physics.grab); the Scavenger owns only the dwell-to-pry
+// state and the placement it resolved this frame, which Draw renders as a ghost.
+type Scavenger struct {
 	// prying tracks the dwell-to-detach interaction: while the player holds left
-	// click over a part of any ship (their own or an enemy's), pryTimer accumulates
-	// against scavengePryDuration; on completion that part detaches into Held.
-	// pryShip/pryCoord are the ship and cell currently being pried.
+	// click over an exterior part of any ship (their own or an enemy's), pryTimer
+	// accumulates against scavengePryDuration; on completion that part detaches into
+	// the player's grip. pryShip/pryCoord are the ship and cell currently being pried.
 	prying   bool
 	pryShip  *Ship
 	pryCoord GridCoord
 	pryTimer float32
 
-	// The placement resolved by the most recent Update, consumed by Draw and by
-	// the release handler. When snapped, the part locks to snapCoord on the ship;
-	// otherwise it floats at pos. valid is only meaningful while snapped.
+	// The placement resolved by the most recent Update, consumed by Draw and the
+	// release handler. Only meaningful while a part is grabbed: snapped is true when
+	// the cursor is over a grid cell to attach to, snapCoord/valid describe it, and
+	// pos/baseAngle place the ghost preview there.
 	snapped   bool
 	snapCoord GridCoord
 	valid     bool
-	pos       rl.Vector2 // world center of the free-floating preview
-	baseAngle float32    // world rotation of the preview's frame (radians)
+	pos       rl.Vector2 // world center of the snap ghost
+	baseAngle float32    // world rotation of the ghost's frame (radians)
 }
 
 // mouseWorld converts the OS mouse position into world coordinates, accounting
@@ -51,52 +58,58 @@ func mouseWorld(camera rl.Camera2D) rl.Vector2 {
 }
 
 // Update runs one frame of the scavenging interaction: grab a loose part on left
-// press, resolve where a held part would land (snapping to the ship's grid when
-// near it), rotate it 90° on R, and on release either attach it (valid snap) or
-// drop it back into the debris field. It only does anything while spacewalking.
+// press (within reach), tow whatever's grabbed toward the cursor, resolve where it
+// would attach (snapping to the ship's grid when near it), rotate it 90° on R, and
+// on release either attach it (valid snap) or let it go loose. It only does
+// anything while spacewalking.
 func (sc *Scavenger) Update(physics *Physics, ship *Ship, player *Player, camera rl.Camera2D, dt float32) {
 	wp := mouseWorld(camera)
 
-	if sc.Held == nil {
-		// A press grabs a loose part outright; with none under the cursor, fall
-		// through to the dwell-to-pry interaction against the ship's own parts.
+	if physics.GrabbedPart() == nil {
+		// A press grabs a loose part within reach; with none there, fall through to
+		// the dwell-to-pry interaction against nearby exterior parts.
 		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-			if grabbed := physics.GrabLoosePart(wp); grabbed != nil {
-				sc.Held = grabbed
+			if physics.GrabLoosePartAt(wp, player.Position) {
 				sc.prying = false
 				return
 			}
 		}
-		sc.updatePry(physics, ship, wp, dt)
+		sc.updatePry(physics, ship, player, wp, dt)
 		return
 	}
 
-	// Press R to rotate the held part 90° clockwise (cycling its facing).
-	if rl.IsKeyPressed(rl.KeyR) {
-		sc.Held.Facing = (sc.Held.Facing + 1) % 4
+	// Press R to rotate the grabbed part 90° clockwise (cycling its facing).
+	if held := physics.GrabbedPart(); rl.IsKeyPressed(rl.KeyR) {
+		held.Facing = (held.Facing + 1) % 4
 	}
 
-	sc.resolvePlacement(ship, wp)
+	// Snapping is judged by where the part actually is (it lags the cursor), but the
+	// tow still aims at the cursor.
+	if partPos, ok := physics.GrabbedPos(); ok {
+		sc.resolvePlacement(ship, partPos)
+	}
+	physics.UpdateGrab(wp, player.Position)
 
 	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) {
-		sc.release(physics, ship, player)
+		sc.release(physics, ship)
 	}
 }
 
-// updatePry advances the dwell-to-detach interaction while nothing is held.
-// Holding left click over any ship's (non-cockpit) part — the player's own or an
-// enemy's — for scavengePryDuration pries it loose into Held; that removal can
-// sever other parts from that ship's cockpit, which break off as debris. Moving to
-// a different cell or ship, pointing off every ship, or releasing resets the timer.
-// Pried enemy parts still snap onto the player's own ship (via resolvePlacement).
-func (sc *Scavenger) updatePry(physics *Physics, ship *Ship, wp rl.Vector2, dt float32) {
+// updatePry advances the dwell-to-detach interaction while nothing is grabbed.
+// Holding left click over any ship's exterior (non-cockpit) part within reach —
+// the player's own or an enemy's — for scavengePryDuration pries it loose into the
+// player's grip; that removal can sever other parts from that ship's cockpit, which
+// break off as debris. Moving to a different cell or ship, pointing off every
+// reachable part, or releasing resets the timer. Pried enemy parts still snap onto
+// the player's own ship (via resolvePlacement).
+func (sc *Scavenger) updatePry(physics *Physics, ship *Ship, player *Player, wp rl.Vector2, dt float32) {
 	if !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
 		sc.prying = false
 		return
 	}
 
 	target, c, ok := physics.PryTargetAt(wp)
-	if !ok {
+	if !ok || target.distToCell(player.Position, c) > scavengeReach {
 		sc.prying = false
 		return
 	}
@@ -110,28 +123,28 @@ func (sc *Scavenger) updatePry(physics *Physics, ship *Ship, wp rl.Vector2, dt f
 
 	sc.pryTimer += dt
 	if sc.pryTimer >= scavengePryDuration {
-		sc.Held = physics.DetachPart(sc.pryShip, c)
+		physics.DetachAndGrab(sc.pryShip, c)
 		sc.prying = false
 		sc.pryTimer = 0
-		if sc.Held != nil {
-			sc.resolvePlacement(ship, wp)
+		if partPos, ok := physics.GrabbedPos(); ok {
+			sc.resolvePlacement(ship, partPos)
 		}
 	}
 }
 
-// resolvePlacement decides where the held part would land this frame: snapped to
-// the nearest ship cell when the cursor is within snap range of the ship (with a
-// validity check for red feedback), or trailing the cursor otherwise. Results are
-// stored for Draw and release.
-func (sc *Scavenger) resolvePlacement(ship *Ship, wp rl.Vector2) {
+// resolvePlacement decides whether the grabbed part would snap onto the ship this
+// frame, keyed on the part's own towed position (not the cursor): snapped to the
+// cell the part is over when the part itself is within snap range of the hull (with
+// a validity check for red feedback), otherwise not snapped. Because the drag is
+// slow, this means you must actually haul the part up to the ship — pointing the
+// cursor at the hull from afar won't do. Results are stored for Draw and release.
+func (sc *Scavenger) resolvePlacement(ship *Ship, partPos rl.Vector2) {
 	sc.snapped = false
-	sc.pos = wp
-	sc.baseAngle = 0 // screen-aligned while free; only the facing indicator turns
 
 	near := false
 	for c := range ship.Parts {
 		center := ship.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
-		if dist(wp, center) <= scavengeSnapRange {
+		if dist(partPos, center) <= scavengeSnapRange {
 			near = true
 			break
 		}
@@ -141,32 +154,27 @@ func (sc *Scavenger) resolvePlacement(ship *Ship, wp rl.Vector2) {
 	}
 
 	sc.snapped = true
-	sc.snapCoord = ship.gridAtWorld(wp)
+	sc.snapCoord = ship.gridAtWorld(partPos)
 	sc.valid = ship.canAttachAt(sc.snapCoord)
 	sc.pos = ship.worldPoint(float32(sc.snapCoord.X)*cellSize, float32(sc.snapCoord.Y)*cellSize)
 	sc.baseAngle = ship.Direction
 }
 
-// release ends a drag: attach the part when it's snapped to a valid cell,
-// otherwise return it to the loose-part field where the preview sat (moving with
-// the astronaut so it stays in reach). Clears the held part either way.
-func (sc *Scavenger) release(physics *Physics, ship *Ship, player *Player) {
+// release ends a drag: attach the grabbed part when it's snapped to a valid cell,
+// otherwise let go of it so it stays loose in space (carrying whatever velocity the
+// tow gave it).
+func (sc *Scavenger) release(physics *Physics, ship *Ship) {
 	if sc.snapped && sc.valid {
-		physics.AttachPart(ship, sc.snapCoord, sc.Held)
+		physics.AttachGrabbed(ship, sc.snapCoord)
 	} else {
-		physics.DropPart(sc.Held, sc.pos, sc.baseAngle, player.Velocity)
+		physics.ReleaseGrab()
 	}
-	sc.Held = nil
 }
 
-// DropHeld returns any held part to the debris field without placing it, used
-// when the player re-enters the ship mid-drag. No-op when nothing is held.
-func (sc *Scavenger) DropHeld(physics *Physics, player *Player) {
-	if sc.Held == nil {
-		return
-	}
-	physics.DropPart(sc.Held, sc.pos, sc.baseAngle, player.Velocity)
-	sc.Held = nil
+// DropHeld lets go of any grabbed part without placing it, used when the player
+// re-enters the ship mid-drag. No-op when nothing is grabbed.
+func (sc *Scavenger) DropHeld(physics *Physics) {
+	physics.ReleaseGrab()
 }
 
 // comNeutralColor marks the center of mass when there are no engines to balance;
@@ -179,33 +187,50 @@ var (
 	unbalancedColor = rl.NewColor(220, 50, 40, 255)
 )
 
-// Draw renders the held part as a ghost preview at its resolved placement: normal
-// color when it's free or snapped to a valid cell, red when snapped to an invalid
-// one. While a part is held it also draws the ship's center of mass and engine
-// thrust line, colored green when the thrust is balanced through the center of
-// mass and red otherwise. When snapped to a valid cell it evaluates the ship as it
-// *would* be with the part attached (and ghosts the current balance point so the
-// shift is visible), letting the pilot judge the spot before releasing. It draws
-// nothing when no part is held.
-func (sc *Scavenger) Draw(ship *Ship) {
-	if sc.Held == nil {
-		if sc.prying {
+// Draw overlays placement feedback while a part is being dragged. The grabbed part
+// draws itself as loose debris (it's a physics body now); on top of that, when the
+// cursor is over a snap cell, a ghost of the part previews where it would attach —
+// normal color when valid, red when not. While a part is grabbed it also draws the
+// ship's center of mass and engine thrust line, green when the thrust is balanced
+// through the center of mass and red otherwise; over a valid cell it evaluates the
+// ship as it *would* be with the part attached (and ghosts the current balance
+// point so the shift is visible), letting the pilot judge the spot before
+// releasing. It draws nothing (beyond the pry ring) when no part is grabbed.
+func (sc *Scavenger) Draw(ship *Ship, physics *Physics, player *Player) {
+	held := physics.GrabbedPart()
+	if held == nil {
+		// While dwelling to pry a part loose, tether the astronaut to it with the same
+		// tractor beam the drag uses, so working a part free reads as an active pull.
+		if sc.prying && sc.pryShip != nil {
+			center := sc.pryShip.worldPoint(float32(sc.pryCoord.X)*cellSize, float32(sc.pryCoord.Y)*cellSize)
+			drawGrabBeam(player.Position, center)
 			sc.drawPryProgress()
 		}
 		return
 	}
-	fill := partSpecs[sc.Held.Type].color
-	if sc.snapped && !sc.valid {
-		fill = rl.Red
+
+	// A wobbly tractor beam tethers the astronaut to the part they're hauling, so the
+	// slow drag reads as an active tow rather than the part drifting on its own.
+	if pos, ok := physics.GrabbedPos(); ok {
+		drawGrabBeam(player.Position, pos)
 	}
-	drawPartColored(sc.pos, sc.baseAngle, sc.Held, fill)
+
+	// Ghost the part at the snap cell so "release here to attach" reads clearly; the
+	// real part is off near the cursor where physics has towed it.
+	if sc.snapped {
+		fill := partSpecs[held.Type].color
+		if !sc.valid {
+			fill = rl.Red
+		}
+		drawPartColored(sc.pos, sc.baseAngle, held, fill)
+	}
 
 	// Evaluate the previewed configuration when snapped to a valid cell, otherwise
 	// the ship as it stands.
 	var extra *Part
 	var coord GridCoord
 	if sc.snapped && sc.valid {
-		extra = sc.Held
+		extra = held
 		coord = sc.snapCoord
 	}
 
@@ -246,4 +271,47 @@ func (sc *Scavenger) drawPryProgress() {
 	const r = cellSize * 0.45
 	rl.DrawCircleSector(center, r, -90, -90+360*frac, 24, rl.NewColor(255, 210, 40, 150))
 	rl.DrawCircleLines(int32(center.X), int32(center.Y), r, rl.NewColor(255, 210, 40, 230))
+}
+
+// grabBeamColor is the tractor-beam cyan the grab tether is drawn in.
+var grabBeamColor = rl.NewColor(120, 200, 255, 255)
+
+// drawGrabBeam draws a wobbly tractor beam from the astronaut (from) to the part
+// being dragged (to). The beam is a chain of short segments displaced sideways by a
+// sine wave that travels along its length over time and swells toward the middle
+// (pinned at both ends), so it reads as an energized tether hauling the part in.
+func drawGrabBeam(from, to rl.Vector2) {
+	dx := to.X - from.X
+	dy := to.Y - from.Y
+	length := float32(math.Hypot(float64(dx), float64(dy)))
+	if length < 1 {
+		return
+	}
+	// Unit vector along the beam and its perpendicular, for the sideways wobble.
+	ux, uy := dx/length, dy/length
+	px, py := -uy, ux
+
+	// Phase travels with wall-clock time so the wobble ripples toward the part.
+	t := float32(rl.GetTime())
+	const (
+		segments = 14
+		amp      = 5.0 // peak sideways displacement, world px
+		waves    = 2.5 // sine humps spanning the beam
+	)
+	prev := from
+	for i := 1; i <= segments; i++ {
+		f := float32(i) / segments
+		// Envelope pins the wobble to zero at the hand and the part, bulging between.
+		env := float32(math.Sin(float64(f) * math.Pi))
+		off := amp * env * float32(math.Sin(float64(f*waves*2*math.Pi-t*7)))
+		cur := rl.NewVector2(
+			from.X+ux*length*f+px*off,
+			from.Y+uy*length*f+py*off,
+		)
+		// Flicker the alpha a touch so the tether looks live.
+		c := grabBeamColor
+		c.A = uint8(clamp(170+40*float32(math.Sin(float64(t*20+f*10))), 0, 255))
+		rl.DrawLineEx(prev, cur, 2, c)
+		prev = cur
+	}
 }
