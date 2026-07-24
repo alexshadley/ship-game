@@ -42,3 +42,18 @@ func (PlayerInput) Controls(dt float32) Controls {
 	}
 	return c
 }
+
+// PilotInput is the player ship's Controller. It reads the keyboard while the
+// pilot is aboard, but yields no controls while they're out on a spacewalk (the
+// ship coasts and holds fire, and WASD/Shift drive the astronaut instead). It
+// reads the shared spacewalking flag owned by the main loop.
+type PilotInput struct {
+	spacewalking *bool
+}
+
+func (p PilotInput) Controls(dt float32) Controls {
+	if p.spacewalking != nil && *p.spacewalking {
+		return Controls{}
+	}
+	return PlayerInput{}.Controls(dt)
+}

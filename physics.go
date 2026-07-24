@@ -50,6 +50,10 @@ const (
 	// registered against any type, so they bounce off ships, asteroids, and one
 	// another via the solver but never deal or take damage.
 	collisionLoose cp.CollisionType = 3
+	// collisionPlayer tags the spacewalking astronaut. Like loose parts it has no
+	// damage handler, so it bounces off ships, asteroids, and debris without ever
+	// dealing or taking damage.
+	collisionPlayer cp.CollisionType = 4
 )
 
 // shipBody binds a ship to its rigid body and controller. Each frame the
@@ -87,6 +91,52 @@ type Physics struct {
 	// are a shared debris field: parts broken off any ship end up here.
 	looseParts  []*LoosePart
 	looseBodies []*cp.Body
+
+	// player, playerBody and playerShape exist only during a spacewalk: the
+	// astronaut's simulated body, added to the space by AttachPlayer and removed
+	// by DetachPlayer. All are nil while the pilot is aboard.
+	player      *Player
+	playerBody  *cp.Body
+	playerShape *cp.Shape
+}
+
+// AttachPlayer adds a body for the spacewalking astronaut to the space at its
+// current position and velocity, so it collides with the ships, asteroids, and
+// debris. It carries its own collision type with no registered handler, so those
+// collisions resolve as pure physical bounces and deal no damage to anything.
+func (p *Physics) AttachPlayer(pl *Player) {
+	moment := cp.MomentForCircle(playerMass, 0, playerRadius, cp.Vector{})
+	body := cp.NewBody(playerMass, moment)
+	body.SetPosition(cp.Vector{X: float64(pl.Position.X), Y: float64(pl.Position.Y)})
+	body.SetVelocityVector(cp.Vector{X: float64(pl.Velocity.X), Y: float64(pl.Velocity.Y)})
+	// Custom velocity update applies the astronaut's own gentle drag instead of the
+	// space's default ship damping, preserving the light spacewalk drift.
+	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
+		b.UpdateVelocity(gravity, math.Pow(playerDamping, dt), dt)
+	})
+	p.space.AddBody(body)
+
+	shape := p.space.AddShape(cp.NewCircle(body, playerRadius, cp.Vector{}))
+	shape.SetCollisionType(collisionPlayer)
+	shape.SetElasticity(playerElasticity)
+	shape.SetFriction(0.4)
+
+	p.player = pl
+	p.playerBody = body
+	p.playerShape = shape
+}
+
+// DetachPlayer removes the astronaut's body from the space (on re-entry). It is a
+// no-op if no spacewalk is in progress.
+func (p *Physics) DetachPlayer() {
+	if p.playerBody == nil {
+		return
+	}
+	p.space.RemoveShape(p.playerShape)
+	p.space.RemoveBody(p.playerBody)
+	p.player = nil
+	p.playerBody = nil
+	p.playerShape = nil
 }
 
 // NewPhysics builds a space containing the asteroids. Ships are added afterward
@@ -296,6 +346,16 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		sb.controls = controls
 	}
 
+	// Drive the spacewalking astronaut with WASD, as a force scaled by its mass so
+	// the acceleration matches playerThrust regardless of mass.
+	if p.playerBody != nil {
+		dx, dy := walkInputDir()
+		p.playerBody.SetForce(cp.Vector{
+			X: dx * playerMass * playerThrust,
+			Y: dy * playerMass * playerThrust,
+		})
+	}
+
 	p.space.Step(dt)
 
 	// Sync each body back onto its ship, cut loose any parts that broke this step,
@@ -345,6 +405,14 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		l.Position = rl.NewVector2(float32(lpos.X), float32(lpos.Y))
 		l.Velocity = rl.NewVector2(float32(lvel.X), float32(lvel.Y))
 		l.Rotation = float32(lb.Angle())
+	}
+
+	// Sync the astronaut's simulated motion back for rendering and re-entry checks.
+	if p.playerBody != nil && p.player != nil {
+		ppos := p.playerBody.Position()
+		pvel := p.playerBody.Velocity()
+		p.player.Position = rl.NewVector2(float32(ppos.X), float32(ppos.Y))
+		p.player.Velocity = rl.NewVector2(float32(pvel.X), float32(pvel.Y))
 	}
 
 	return projectiles
