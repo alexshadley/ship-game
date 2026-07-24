@@ -234,7 +234,7 @@ func SpawnEnemy(target *Ship, asteroids []*Asteroid) (*Ship, Controller) {
 
 // enemyRoster lists the ship designs (files in ships/) that spawn as enemies.
 // Add more entries here to widen the rotation; a random one is chosen per spawn.
-var enemyRoster = []string{"raider.json", "l_ship.json"}
+var enemyRoster = []string{"raider.json", "l_ship.json", "lancelot.json", "fatboy.json"}
 
 // rosterEnemyShip loads a random valid design from enemyRoster. The files are
 // re-read on every spawn, so edits saved in the designer take effect without a

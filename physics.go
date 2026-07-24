@@ -37,10 +37,11 @@ const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
 	// collisionLoose is free-floating debris: it both takes and deals collision
-	// damage (against ships, asteroids, other debris, and the astronaut) and is
-	// culled once battered to zero health — see the handlers in NewPhysics.
-	// collisionPlayer takes impact damage from asteroids, ships, and debris but
-	// deals none.
+	// damage against ships, asteroids, and other debris (but not the astronaut, who
+	// bumps it harmlessly), and is culled once battered to zero health — see the
+	// handlers in NewPhysics.
+	// collisionPlayer takes impact damage only from enemy ships; its own hull,
+	// asteroids, and debris are harmless. It deals none.
 	collisionLoose  cp.CollisionType = 3
 	collisionPlayer cp.CollisionType = 4
 )
@@ -197,21 +198,17 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		damageShapePart(b, impulse)
 	}
 
-	// The astronaut takes impact damage from hard knocks against asteroids, ships,
-	// and loose debris while out on a spacewalk; the solver still handles the
-	// bounce. Debris shrugs off the featherweight astronaut (no damageShapePart on
-	// its side), so nudging salvage never wrecks it — only shots and heavier
-	// impacts break debris apart.
-	playerAsteroid := space.NewCollisionHandler(collisionPlayer, collisionAsteroid)
-	playerAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
-		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
-	}
+	// The astronaut only takes impact damage from hard knocks against enemy ships
+	// while out on a spacewalk; bumping its own hull, an asteroid, or loose debris
+	// is harmless (see the collisionLoose/collisionPlayer notes). The solver still
+	// handles the bounce in every case.
 	playerShipHandler := space.NewCollisionHandler(collisionPlayer, collisionShip)
 	playerShipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
-		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
-	}
-	loosePlayer := space.NewCollisionHandler(collisionLoose, collisionPlayer)
-	loosePlayer.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		_, shipShape := arb.Shapes()
+		sb := p.shipBodyFor(shipShape.Body())
+		if sb == nil || sb.ship == p.playerShip {
+			return
+		}
 		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
 	}
 
@@ -684,6 +681,21 @@ func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
 		p.recomputeShipBody(sb)
 		return
 	}
+}
+
+// PryTargetAt returns the ship and cell of a pryable (non-cockpit) part under
+// world point wp, ok=false if nothing pryable is there. Every simulated ship is a
+// candidate — the player's own and any enemy — so a spacewalking player can strip
+// parts off enemy hulls, not just their own. When ships overlap, the first in
+// p.ships wins; that's rare enough not to matter for a dwell interaction.
+func (p *Physics) PryTargetAt(wp rl.Vector2) (*Ship, GridCoord, bool) {
+	for _, sb := range p.ships {
+		c := sb.ship.gridAtWorld(wp)
+		if part, ok := sb.ship.Parts[c]; ok && part.Type != PartCockpit {
+			return sb.ship, c, true
+		}
+	}
+	return nil, GridCoord{}, false
 }
 
 // DetachPart pries the part at grid cell c off ship and returns it (nil if the

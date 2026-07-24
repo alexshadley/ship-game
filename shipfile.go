@@ -30,7 +30,7 @@ type shipDesign struct {
 }
 
 func partTypeFromString(s string) (PartType, bool) {
-	for t := PartCockpit; t <= PartWeakCannon; t++ {
+	for t := PartCockpit; t < partTypeCount; t++ {
 		if t.String() == s {
 			return t, true
 		}

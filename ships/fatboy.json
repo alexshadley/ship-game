@@ -1,0 +1,112 @@
+{
+  "parts": [
+    {
+      "x": 0,
+      "y": -1,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": 2,
+      "y": -1,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "type": "Cannon",
+      "facing": "Up"
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": 1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 1,
+      "type": "Cockpit",
+      "facing": "Up"
+    },
+    {
+      "x": 2,
+      "y": 1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -2,
+      "y": 2,
+      "type": "Control Thruster",
+      "facing": "Right"
+    },
+    {
+      "x": -1,
+      "y": 2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 2,
+      "type": "Engine",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 2,
+      "type": "Engine",
+      "facing": "Down"
+    },
+    {
+      "x": 3,
+      "y": 2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": 2,
+      "type": "Control Thruster",
+      "facing": "Left"
+    }
+  ]
+}
