@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math/rand"
+
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -36,13 +38,53 @@ func (a *Asteroid) Draw() {
 	rl.DrawCircleV(highlight, a.Size*0.6, rl.Gray)
 }
 
-// DefaultAsteroids returns a handful of asteroids of various sizes scattered
-// around the screen, each drifting with its own velocity.
+// Asteroid field generation tuning. The field is a large square region centered
+// on the world origin (where the ship spawns); asteroids are scattered randomly
+// within it but kept clear of the spawn point.
+const (
+	// fieldRadius is the half-extent of the asteroid field in world pixels, so
+	// the field spans 2*fieldRadius on each axis around the origin.
+	fieldRadius = 3000
+	// fieldCount is how many asteroids to scatter through the field.
+	fieldCount = 60
+	// spawnClearRadius keeps asteroids from spawning on top of the ship (and the
+	// enemies that start near the origin).
+	spawnClearRadius = 700
+
+	// Asteroid sizes (radius in pixels). Most rocks fall in the small/medium
+	// range; a small fraction are boulders that are much larger.
+	asteroidMinSize    = 15
+	asteroidMaxSize    = 70
+	asteroidHugeMin    = 150
+	asteroidHugeMax    = 400
+	asteroidHugeChance = 0.12
+)
+
+// DefaultAsteroids randomly scatters a large field of stationary asteroids
+// around the world origin. Sizes vary, with a fraction being much larger
+// boulders. Asteroids start at rest (zero velocity) so the field is still at
+// game start, and are kept clear of the ship's spawn point.
 func DefaultAsteroids() []*Asteroid {
-	return []*Asteroid{
-		NewAsteroid(rl.NewVector2(120, 120), rl.NewVector2(15, 10), 40),
-		NewAsteroid(rl.NewVector2(650, 180), rl.NewVector2(-20, 25), 25),
-		NewAsteroid(rl.NewVector2(500, 450), rl.NewVector2(10, -18), 60),
-		NewAsteroid(rl.NewVector2(220, 480), rl.NewVector2(-12, -8), 18),
+	asteroids := make([]*Asteroid, 0, fieldCount)
+	for len(asteroids) < fieldCount {
+		pos := rl.NewVector2(
+			(rand.Float32()*2-1)*fieldRadius,
+			(rand.Float32()*2-1)*fieldRadius,
+		)
+		// Reject positions too close to the origin so the ship (and nearby
+		// enemies) don't start buried inside a rock.
+		if pos.X*pos.X+pos.Y*pos.Y < spawnClearRadius*spawnClearRadius {
+			continue
+		}
+
+		var size float32
+		if rand.Float32() < asteroidHugeChance {
+			size = asteroidHugeMin + rand.Float32()*(asteroidHugeMax-asteroidHugeMin)
+		} else {
+			size = asteroidMinSize + rand.Float32()*(asteroidMaxSize-asteroidMinSize)
+		}
+
+		asteroids = append(asteroids, NewAsteroid(pos, rl.NewVector2(0, 0), size))
 	}
+	return asteroids
 }
