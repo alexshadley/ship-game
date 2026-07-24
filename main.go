@@ -53,8 +53,35 @@ func main() {
 	asteroids := DefaultAsteroids()
 	physics := NewPhysics(ship)
 
+	var projectiles []*Projectile
+	// Time until the cannons may fire again while Shift is held.
+	var fireCooldown float32
+
 	for !rl.WindowShouldClose() {
-		physics.Update(float64(rl.GetFrameTime()))
+		dt := rl.GetFrameTime()
+		physics.Update(float64(dt))
+
+		// Hold Shift to fire the cannons on a fixed interval. Releasing the key
+		// resets the cooldown so the first shot on the next press is immediate.
+		if rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift) {
+			fireCooldown -= dt
+			if fireCooldown <= 0 {
+				projectiles = append(projectiles, ship.FireCannons()...)
+				fireCooldown = cannonFireInterval
+			}
+		} else {
+			fireCooldown = 0
+		}
+
+		// Advance projectiles and drop any that have expired.
+		live := projectiles[:0]
+		for _, pr := range projectiles {
+			pr.Update(dt)
+			if !pr.Expired() {
+				live = append(live, pr)
+			}
+		}
+		projectiles = live
 
 		// Draw the game to the low-resolution render texture.
 		rl.BeginTextureMode(target)
@@ -62,6 +89,9 @@ func main() {
 		rl.BeginMode2D(camera)
 		for _, a := range asteroids {
 			a.Draw()
+		}
+		for _, pr := range projectiles {
+			pr.Draw()
 		}
 		ship.Draw()
 		rl.EndMode2D()
