@@ -126,6 +126,9 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// Wing-tip control thrusters, each attached on its inboard side only.
 	s.AddPart(GridCoord{X: -2, Y: 1}, NewPart(PartControlThruster, FacingRight))
 	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartControlThruster, FacingLeft))
+	// Forward-firing cannons flanking the cockpit.
+	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartCannon, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartCannon, FacingUp))
 	return s
 }
 
@@ -231,8 +234,31 @@ func (s *Ship) Draw() {
 			s.drawFacingIndicator(c, p.Facing, rl.Red)
 		case PartControlThruster:
 			s.drawControlThrusterNozzles(c, p.Facing)
+		case PartCannon:
+			s.drawFacingIndicator(c, p.Facing, rl.Black)
+		}
+
+		// A damaged part shows a small health bar above its cell.
+		if maxHealth := partSpecs[p.Type].health; p.Health < maxHealth {
+			drawHealthBar(center, p.Health/maxHealth)
 		}
 	}
+}
+
+// drawHealthBar draws a small screen-aligned health bar just above center, with
+// its green fill proportional to frac (0..1) over a dark red background. It stays
+// axis-aligned rather than rotating with the ship so it always reads cleanly.
+func drawHealthBar(center rl.Vector2, frac float32) {
+	if frac < 0 {
+		frac = 0
+	}
+	const barWidth int32 = cellSize * 4 / 5 // ~0.8 of a cell
+	const barHeight int32 = 4
+	x := int32(center.X) - barWidth/2
+	y := int32(center.Y-cellSize*0.5) - barHeight - 2
+	rl.DrawRectangle(x, y, barWidth, barHeight, rl.Maroon)
+	rl.DrawRectangle(x, y, int32(float32(barWidth)*frac), barHeight, rl.Lime)
+	rl.DrawRectangleLines(x, y, barWidth, barHeight, rl.Black)
 }
 
 // drawCell draws a square of the given size centered at center, rotated by

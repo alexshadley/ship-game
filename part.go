@@ -20,6 +20,9 @@ const (
 	// It attaches to the ship on exactly one side; its Facing points toward that
 	// attached side, and it thrusts along the perpendicular axis.
 	PartControlThruster
+	// PartCannon fires projectiles in its Facing direction while the player holds
+	// Shift.
+	PartCannon
 )
 
 func (t PartType) String() string {
@@ -32,6 +35,8 @@ func (t PartType) String() string {
 		return "Engine"
 	case PartControlThruster:
 		return "Control Thruster"
+	case PartCannon:
+		return "Cannon"
 	default:
 		return "Unknown"
 	}
@@ -131,6 +136,7 @@ var partSpecs = map[PartType]partSpec{
 	PartEngine:  {health: 80, weight: 2.5, color: rl.Orange},
 
 	PartControlThruster: {health: 60, weight: 1.5, color: rl.Purple},
+	PartCannon:          {health: 70, weight: 2.0, color: rl.DarkGreen},
 }
 
 // NewPart builds a part of the given type and facing with default health/weight.

@@ -36,8 +36,9 @@ func main() {
 	// Camera for the game view. Zoom 0.5 shows twice as much world as 1:1,
 	// i.e. we're zoomed out 2x for the piloting view. Spacewalk mode will later
 	// use zoom 1.0 (parts drawn at their full cellSize pixel size). The offset
-	// centers the camera target on screen; nudge up one cell so the body (which
-	// extends behind the cockpit) reads as roughly centered.
+	// centers the camera target on screen. Each frame Target is set to the ship's
+	// position (nudged down one cell so the body, which extends behind the
+	// cockpit, reads as roughly centered) so the camera follows the ship.
 	camera := rl.Camera2D{
 		Target:   rl.NewVector2(0, cellSize),
 		Offset:   rl.NewVector2(gameWidth/2, gameHeight/2),
@@ -51,8 +52,12 @@ func main() {
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship)
+	physics := NewPhysics(ship, asteroids)
 	particles := NewParticleSystem()
+
+	var projectiles []*Projectile
+	// Time until the cannons may fire again while Shift is held.
+	var fireCooldown float32
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
@@ -63,17 +68,48 @@ func main() {
 		emitExhaust(ship, particles)
 		particles.Update(dt)
 
+		// Hold Shift to fire the cannons on a fixed interval. Releasing the key
+		// resets the cooldown so the first shot on the next press is immediate.
+		if rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift) {
+			fireCooldown -= dt
+			if fireCooldown <= 0 {
+				projectiles = append(projectiles, ship.FireCannons()...)
+				fireCooldown = cannonFireInterval
+			}
+		} else {
+			fireCooldown = 0
+		}
+
+		// Advance projectiles and drop any that have expired.
+		live := projectiles[:0]
+		for _, pr := range projectiles {
+			pr.Update(dt)
+			if !pr.Expired() {
+				live = append(live, pr)
+			}
+		}
+		projectiles = live
+
+		// Follow the ship: keep it centered (with the one-cell downward nudge).
+		camera.Target = rl.NewVector2(ship.Position.X, ship.Position.Y+cellSize)
+
 		// Draw the game to the low-resolution render texture.
 		rl.BeginTextureMode(target)
-		rl.ClearBackground(rl.RayWhite)
+		rl.ClearBackground(rl.Black)
 		rl.BeginMode2D(camera)
 		for _, a := range asteroids {
 			a.Draw()
 		}
 		// Exhaust draws before the ship so plumes read as coming out from under it.
 		particles.Draw()
+		for _, pr := range projectiles {
+			pr.Draw()
+		}
 		ship.Draw()
 		rl.EndMode2D()
+
+		// Overlay the minimap in screen (texture) space, on top of the world.
+		DrawMinimap(ship, asteroids)
 		rl.EndTextureMode()
 
 		// Scale the render texture up to the full window.
