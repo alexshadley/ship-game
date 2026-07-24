@@ -68,6 +68,12 @@ type Physics struct {
 	looseParts  []*LoosePart
 	looseBodies []*cp.Body
 
+	// grab is the loose part the spacewalking player is dragging toward their
+	// cursor, or nil. The part never leaves the simulation while held — it is towed
+	// toward grab.target (a reachable point refreshed each frame) rather than lifted
+	// out — so it keeps colliding with and shoving the world the whole time.
+	grab *grabbedPart
+
 	player      *Player
 	playerBody  *cp.Body
 	playerShape *cp.Shape
@@ -77,6 +83,23 @@ type Physics struct {
 	// damage from collisions or projectiles — a testing aid, wired in main.
 	playerShip *Ship
 	godMode    *bool
+}
+
+// grabDragSpeed caps how fast (world px/s) a grabbed part is towed toward the
+// cursor. It's deliberately slow so a part feels heavy — it lags well behind the
+// pointer and crawls into place — and so a dragged part meaningfully shoves
+// whatever it rams into rather than batting it aside.
+const grabDragSpeed = 100
+
+// grabbedPart is the loose part the player is dragging on a spacewalk: its debris
+// entry and rigid body (both stable pointers, so they survive the loose slices
+// reshuffling as other debris comes and goes) plus the world point it's being
+// towed toward this frame. Attaching, releasing, or the part being destroyed all
+// clear it.
+type grabbedPart struct {
+	loose  *LoosePart
+	body   *cp.Body
+	target cp.Vector
 }
 
 // playerInvincible reports whether damage to sb should be suppressed because it
@@ -186,6 +209,12 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	looseShip := space.NewCollisionHandler(collisionLoose, collisionShip)
 	looseShip.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		looseShape, shipShape := arb.Shapes()
+		// A part the player is dragging in to attach mustn't chip the hull it's being
+		// bolted onto (nor grind itself down) as it's towed into place — the bounce
+		// still happens, just no damage.
+		if p.grabbedShape(looseShape) {
+			return
+		}
 		impulse := arb.TotalImpulse().Length()
 		damageShapePart(looseShape, impulse)
 		p.damageShipShapePart(shipShape, impulse)
@@ -289,7 +318,7 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 	// removes it on the spot (we're outside space.Step here, so mutating is safe).
 	for i, l := range p.looseParts {
 		// Un-rotate the hit into the debris's local frame and test its cell box, so a
-		// tumbling part is hit where it actually is (mirrors GrabLoosePart).
+		// tumbling part is hit where it actually is (mirrors GrabLoosePartAt).
 		sin := float32(math.Sin(float64(l.Rotation)))
 		cos := float32(math.Cos(float64(l.Rotation)))
 		dx := pr.Position.X - l.Position.X
@@ -424,6 +453,28 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		})
 	}
 
+	// Tow a grabbed part toward the cursor at a capped speed. Overwriting its
+	// velocity each step (as we do for the astronaut's drive) keeps the drag
+	// responsive while leaving the part a full physics body — it still collides with
+	// and pushes whatever it meets. Pin its spin and align it to its facing so it
+	// stays readable as a placement.
+	if p.grab != nil {
+		body := p.grab.body
+		pos := body.Position()
+		to := cp.Vector{X: p.grab.target.X - pos.X, Y: p.grab.target.Y - pos.Y}
+		vel := cp.Vector{}
+		if d := to.Length(); d > 1e-3 {
+			speed := d / dt
+			if speed > grabDragSpeed {
+				speed = grabDragSpeed
+			}
+			vel = to.Mult(speed / d)
+		}
+		body.SetVelocityVector(vel)
+		body.SetAngle(float64(p.grab.loose.Part.Facing.angle()))
+		body.SetAngularVelocity(0)
+	}
+
 	p.space.Step(dt)
 
 	var projectiles []*Projectile
@@ -539,13 +590,14 @@ func (p *Physics) removeShipPart(sb *shipBody, c GridCoord) {
 	delete(sb.ship.Parts, c)
 }
 
-// spawnLoosePart creates a free-floating body for the part at c. The debris
-// inherits the velocity of that point on the ship (body velocity plus ω × r) so it
-// flies off naturally. The caller still removes the part from the grid.
-func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
+// spawnLoosePart creates a free-floating body for the part at c and returns it (nil
+// if the cell is empty). The debris inherits the velocity of that point on the ship
+// (body velocity plus ω × r) so it flies off naturally. The caller still removes the
+// part from the grid.
+func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) (*LoosePart, *cp.Body) {
 	part, ok := sb.ship.Parts[c]
 	if !ok {
-		return
+		return nil, nil
 	}
 	worldPos := sb.ship.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 
@@ -556,15 +608,15 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	ry := float64(worldPos.Y) - bodyPos.Y
 	vel := cp.Vector{X: bodyVel.X - w*ry, Y: bodyVel.Y + w*rx}
 
-	p.addLoosePart(part, worldPos, sb.ship.Direction, vel, w)
+	return p.addLoosePart(part, worldPos, sb.ship.Direction, vel, w)
 }
 
 // addLoosePart creates a free-floating body for part at world position pos with
 // the given rotation (radians), linear velocity, and spin, and records it in the
 // parallel looseParts/looseBodies slices. It is the low-level constructor shared
-// by spawnLoosePart (breakage) and DropPart (a scavenged part released back into
-// the field).
-func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel cp.Vector, spin float64) {
+// by spawnLoosePart (breakage / prying) and SeedLooseParts. Returns the created
+// debris entry and its body so callers can immediately grab it.
+func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel cp.Vector, spin float64) (*LoosePart, *cp.Body) {
 	m := float64(part.Weight)
 	body := cp.NewBody(m, cp.MomentForBox(m, cellSize, cellSize))
 	body.SetPosition(cp.Vector{X: float64(pos.X), Y: float64(pos.Y)})
@@ -579,19 +631,26 @@ func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel
 	shape.SetFriction(0.4)
 	shape.UserData = part
 
-	p.looseParts = append(p.looseParts, &LoosePart{
+	loose := &LoosePart{
 		Part:     part,
 		Position: pos,
 		Velocity: rl.NewVector2(float32(vel.X), float32(vel.Y)),
 		Rotation: rotation,
-	})
+	}
+	p.looseParts = append(p.looseParts, loose)
 	p.looseBodies = append(p.looseBodies, body)
+	return loose, body
 }
 
 // removeLoosePartAt deletes the loose part at index i, removing its body and
 // shape from the space and dropping it from the parallel loose slices. Shared by
-// GrabLoosePart (picked up) and cullDeadLooseParts (smashed apart).
+// GrabLoosePartAt (picked up) and cullDeadLooseParts (smashed apart). If the part
+// being removed is the one the player is dragging, the grab is dropped so it can't
+// dangle on a freed body.
 func (p *Physics) removeLoosePartAt(i int) {
+	if p.grab != nil && p.grab.loose == p.looseParts[i] {
+		p.grab = nil
+	}
 	body := p.looseBodies[i]
 	body.EachShape(func(s *cp.Shape) { p.space.RemoveShape(s) })
 	p.space.RemoveBody(body)
@@ -634,11 +693,12 @@ func (p *Physics) SeedLooseParts(n int) {
 	}
 }
 
-// GrabLoosePart removes and returns the loose part whose cell contains world
-// point wp (nil if none), so the spacewalking player can pick it up and drag it.
-// It deletes the part's body and shape from the space and drops it from the
-// parallel loose slices; the caller now owns the returned *Part.
-func (p *Physics) GrabLoosePart(wp rl.Vector2) *Part {
+// GrabLoosePartAt begins dragging the loose part whose cell contains world point
+// wp, provided it lies within scavengeReach of the astronaut at astronautPos. The
+// part stays in the simulation — it's merely recorded as grabbed and thereafter
+// towed toward the cursor by the grab handling in Update. Reports whether a part
+// was grabbed.
+func (p *Physics) GrabLoosePartAt(wp rl.Vector2, astronautPos rl.Vector2) bool {
 	for i, l := range p.looseParts {
 		// Transform wp into the part's local (un-rotated) frame and test it against
 		// the part's cellSize box, so grabbing respects the part's tumble.
@@ -651,20 +711,87 @@ func (p *Physics) GrabLoosePart(wp rl.Vector2) *Part {
 		if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
 			continue
 		}
-
-		part := l.Part
-		p.removeLoosePartAt(i)
-		return part
+		// Cursor is over this part; only grab it if it's within arm's reach.
+		if dist(astronautPos, l.Position) > scavengeReach {
+			return false
+		}
+		p.grab = &grabbedPart{loose: l, body: p.looseBodies[i], target: cp.Vector{X: float64(l.Position.X), Y: float64(l.Position.Y)}}
+		return true
 	}
-	return nil
+	return false
 }
 
-// DropPart releases a held part back into the loose-part field at world position
-// pos with rotation (radians), moving with velocity vel (typically the
-// astronaut's, so it stays within reach). Used when a drag ends somewhere the
-// part can't attach.
-func (p *Physics) DropPart(part *Part, pos rl.Vector2, rotation float32, vel rl.Vector2) {
-	p.addLoosePart(part, pos, rotation, cp.Vector{X: float64(vel.X), Y: float64(vel.Y)}, 0)
+// GrabbedPart returns the part the player is currently dragging, or nil.
+func (p *Physics) GrabbedPart() *Part {
+	if p.grab == nil {
+		return nil
+	}
+	return p.grab.loose.Part
+}
+
+// GrabbedPos returns the world center of the part the player is dragging, and
+// whether one is grabbed — the far anchor for the tractor beam Draw renders.
+func (p *Physics) GrabbedPos() (rl.Vector2, bool) {
+	if p.grab == nil {
+		return rl.Vector2{}, false
+	}
+	return p.grab.loose.Position, true
+}
+
+// grabbedShape reports whether shape belongs to the part the player is currently
+// dragging, so collision handlers can spare it (and its target) from damage.
+func (p *Physics) grabbedShape(shape *cp.Shape) bool {
+	return p.grab != nil && shape.Body() == p.grab.body
+}
+
+// UpdateGrab aims the current drag at the cursor for this frame, clamping the pull
+// target to within scavengeReach of the astronaut so a grabbed part can't be towed
+// out past the tool's reach. No-op when nothing is grabbed.
+func (p *Physics) UpdateGrab(cursor rl.Vector2, astronautPos rl.Vector2) {
+	if p.grab == nil {
+		return
+	}
+	target := cursor
+	if d := dist(astronautPos, cursor); d > scavengeReach && d > 0 {
+		s := scavengeReach / d
+		target = rl.NewVector2(
+			astronautPos.X+(cursor.X-astronautPos.X)*s,
+			astronautPos.Y+(cursor.Y-astronautPos.Y)*s,
+		)
+	}
+	p.grab.target = cp.Vector{X: float64(target.X), Y: float64(target.Y)}
+}
+
+// ReleaseGrab lets go of the dragged part, leaving it loose in space with whatever
+// velocity it carried. No-op when nothing is grabbed.
+func (p *Physics) ReleaseGrab() {
+	p.grab = nil
+}
+
+// AttachGrabbed pulls the grabbed part out of the loose field and bolts it onto
+// ship at cell c, then clears the grab. The caller is responsible for having
+// checked c is a valid attachment (empty and adjacent to the hull). No-op when
+// nothing is grabbed.
+func (p *Physics) AttachGrabbed(ship *Ship, c GridCoord) {
+	if p.grab == nil {
+		return
+	}
+	part := p.grab.loose.Part
+	if i := p.looseIndexOf(p.grab.loose); i >= 0 {
+		p.removeLoosePartAt(i) // also clears p.grab
+	}
+	p.grab = nil
+	p.AttachPart(ship, c, part)
+}
+
+// looseIndexOf returns the index of l in the loose slices, or -1 if it's gone.
+func (p *Physics) looseIndexOf(l *LoosePart) int {
+	for i, x := range p.looseParts {
+		if x == l {
+			return i
+		}
+	}
+	return -1
 }
 
 // AttachPart adds part to ship at grid cell c, building its collision shape on
@@ -683,36 +810,43 @@ func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
 	}
 }
 
-// PryTargetAt returns the ship and cell of a pryable (non-cockpit) part under
-// world point wp, ok=false if nothing pryable is there. Every simulated ship is a
-// candidate — the player's own and any enemy — so a spacewalking player can strip
-// parts off enemy hulls, not just their own. When ships overlap, the first in
-// p.ships wins; that's rare enough not to matter for a dwell interaction.
+// PryTargetAt returns the ship and cell of a pryable part under world point wp,
+// ok=false if nothing pryable is there. A part is pryable only if it's not the
+// cockpit and it's on the hull's exterior (has an open side) — interior parts are
+// walled in and can't be reached. Every simulated ship is a candidate — the
+// player's own and any enemy — so a spacewalking player can strip parts off enemy
+// hulls, not just their own. When ships overlap, the first in p.ships wins; that's
+// rare enough not to matter for a dwell interaction.
 func (p *Physics) PryTargetAt(wp rl.Vector2) (*Ship, GridCoord, bool) {
 	for _, sb := range p.ships {
 		c := sb.ship.gridAtWorld(wp)
-		if part, ok := sb.ship.Parts[c]; ok && part.Type != PartCockpit {
+		if part, ok := sb.ship.Parts[c]; ok && part.Type != PartCockpit && sb.ship.isExterior(c) {
 			return sb.ship, c, true
 		}
 	}
 	return nil, GridCoord{}, false
 }
 
-// DetachPart pries the part at grid cell c off ship and returns it (nil if the
-// cell is empty, holds the cockpit, or the ship isn't simulated here). Because
-// the pried part may have been the only link between the cockpit and others,
-// any parts thereby stranded are cut loose as debris. It is the inverse of
-// AttachPart, and mirrors the stranding logic of handleBreakage.
-func (p *Physics) DetachPart(ship *Ship, c GridCoord) *Part {
+// DetachAndGrab pries the part at grid cell c off ship, drops it into space as
+// debris, and immediately grabs it so the player can drag it away. It reports
+// whether a part was pried (false if the cell is empty, holds the cockpit, or the
+// ship isn't simulated here). Because the pried part may have been the only link
+// between the cockpit and others, any parts thereby stranded are cut loose as
+// debris too. It is the inverse of AttachGrabbed, and mirrors the stranding logic
+// of handleBreakage.
+func (p *Physics) DetachAndGrab(ship *Ship, c GridCoord) bool {
 	for _, sb := range p.ships {
 		if sb.ship != ship {
 			continue
 		}
 		part, ok := sb.ship.Parts[c]
 		if !ok || part.Type == PartCockpit {
-			return nil
+			return false
 		}
+		// Spawn the pried part as debris where it sat and grab it, then unbolt it.
+		loose, body := p.spawnLoosePart(sb, c)
 		p.removeShipPart(sb, c)
+		p.grab = &grabbedPart{loose: loose, body: body, target: body.Position()}
 
 		if cockpit, hasCockpit := sb.ship.Cockpit(); hasCockpit {
 			connected := sb.ship.connectedParts(cockpit)
@@ -729,9 +863,9 @@ func (p *Physics) DetachPart(ship *Ship, c GridCoord) *Part {
 		}
 
 		p.recomputeShipBody(sb)
-		return part
+		return true
 	}
-	return nil
+	return false
 }
 
 // destroyShip scatters every remaining part of sb as loose debris and removes its

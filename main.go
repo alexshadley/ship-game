@@ -133,7 +133,7 @@ func main() {
 			if spacewalking {
 				if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
 					// Drop whatever's in hand back into space before climbing aboard.
-					scavenger.DropHeld(physics, &player)
+					scavenger.DropHeld(physics)
 					physics.DetachPlayer()
 					spacewalking = false
 				} else {
@@ -141,7 +141,7 @@ func main() {
 					scavenger.Update(physics, ship, &player, camera, dt)
 					// Right click mends nearby parts, but not mid-drag (both use the
 					// mouse), so only when nothing is in hand.
-					if scavenger.Held == nil {
+					if physics.GrabbedPart() == nil {
 						repair.Update(ship, &player, camera, dt)
 					}
 				}
@@ -223,7 +223,7 @@ func main() {
 				repair.Draw()
 				player.Draw()
 				// The part being scavenged draws over the ship as a placement preview.
-				scavenger.Draw(ship)
+				scavenger.Draw(ship, physics, &player)
 			}
 			rl.EndMode2D()
 
@@ -232,7 +232,7 @@ func main() {
 			if spacewalking {
 				minimapPlayer = &player
 				hint = "WASD: move  ·  hold LMB: grab / pry off part  ·  hold RMB: repair"
-				if scavenger.Held != nil {
+				if physics.GrabbedPart() != nil {
 					hint = "R: rotate  ·  release LMB: attach"
 				} else if scavenger.prying {
 					hint = "hold to pry part loose…"
