@@ -74,15 +74,29 @@ func main() {
 	// The player and the AI enemies are all run by the physics from Controls; only
 	// the source of those controls (keyboard vs. AI) differs.
 	physics.AddShip(ship, PilotInput{spacewalking: &spacewalking})
-	enemies, enemyAIs := DefaultEnemies(ship)
-	for i, e := range enemies {
-		physics.AddShip(e, enemyAIs[i])
+
+	// Enemies arrive from offscreen: one at the start, then another every
+	// enemySpawnInterval seconds.
+	var enemies []*Ship
+	spawnEnemy := func() {
+		e, ai := SpawnEnemy(ship)
+		physics.AddShip(e, ai)
+		enemies = append(enemies, e)
 	}
+	spawnEnemy()
+	enemySpawnTimer := float32(enemySpawnInterval)
 
 	var projectiles []*Projectile
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
+
+		// Periodically send in another enemy from beyond the edge of the view.
+		enemySpawnTimer -= dt
+		if enemySpawnTimer <= 0 {
+			spawnEnemy()
+			enemySpawnTimer = enemySpawnInterval
+		}
 
 		if spacewalking {
 			// Press Shift while close to the cockpit to climb back in and resume

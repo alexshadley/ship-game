@@ -133,16 +133,23 @@ func clamp(v, lo, hi float32) float32 {
 	return v
 }
 
-// DefaultEnemies builds a couple of enemy ships positioned around the origin and
-// returns them along with an AI controller for each, set to hunt target.
-func DefaultEnemies(target *Ship) ([]*Ship, []Controller) {
-	ships := []*Ship{
-		DefaultShip(rl.NewVector2(-450, -320)),
-		DefaultShip(rl.NewVector2(520, -360)),
-	}
-	controllers := make([]Controller, len(ships))
-	for i, s := range ships {
-		controllers[i] = NewEnemyAI(s, target)
-	}
-	return ships, controllers
+const (
+	// enemySpawnRadius is how far from the target an enemy appears when spawned.
+	// It sits beyond the piloting view's visible corner (~1470 world px at
+	// pilotingZoom), so enemies always arrive from offscreen.
+	enemySpawnRadius = 1600
+	// enemySpawnInterval is the delay, in seconds, between enemy spawns.
+	enemySpawnInterval = 30
+)
+
+// SpawnEnemy creates a single enemy ship at a random point offscreen around
+// target, returning it with an AI controller set to hunt target.
+func SpawnEnemy(target *Ship) (*Ship, Controller) {
+	angle := rand.Float64() * 2 * math.Pi
+	pos := rl.NewVector2(
+		target.Position.X+float32(math.Cos(angle))*enemySpawnRadius,
+		target.Position.Y+float32(math.Sin(angle))*enemySpawnRadius,
+	)
+	enemy := DefaultShip(pos)
+	return enemy, NewEnemyAI(enemy, target)
 }

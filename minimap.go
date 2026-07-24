@@ -12,10 +12,10 @@ const (
 	minimapRadius = 46
 	// minimapMargin is the gap between the minimap and the bottom-right corner.
 	minimapMargin = 8
-	// minimapScale converts world pixels to minimap pixels. At 0.04 the minimap
-	// spans minimapRadius/0.04 ≈ 1150 world pixels from the ship in every
+	// minimapScale converts world pixels to minimap pixels. At 0.02 the minimap
+	// spans minimapRadius/0.02 ≈ 2300 world pixels from the ship in every
 	// direction.
-	minimapScale = 0.04
+	minimapScale = 0.02
 )
 
 // DrawMinimap renders a small circular overview in the bottom-right of the game
