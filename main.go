@@ -1,14 +1,14 @@
 package main
 
 import (
+	"log"
+
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
 const (
 	screenWidth  = 800
 	screenHeight = 600
-	playerSize   = 50
-	playerSpeed  = 300 // pixels per second
 )
 
 func main() {
@@ -17,32 +17,18 @@ func main() {
 
 	rl.SetTargetFPS(60)
 
-	player := rl.NewVector2(screenWidth/2-playerSize/2, screenHeight/2-playerSize/2)
+	// Place the ship in the middle of the screen. Nudge up by one cell so the
+	// body (which extends behind the cockpit) reads as roughly centered.
+	origin := rl.NewVector2(screenWidth/2, screenHeight/2-cellSize)
+	ship := DefaultShip(origin)
+	if err := ship.Validate(); err != nil {
+		log.Printf("default ship is invalid: %v", err)
+	}
 
 	for !rl.WindowShouldClose() {
-		dt := rl.GetFrameTime()
-		move := playerSpeed * dt
-
-		if rl.IsKeyDown(rl.KeyD) {
-			player.X += move
-		}
-		if rl.IsKeyDown(rl.KeyA) {
-			player.X -= move
-		}
-		if rl.IsKeyDown(rl.KeyS) {
-			player.Y += move
-		}
-		if rl.IsKeyDown(rl.KeyW) {
-			player.Y -= move
-		}
-
-		// Keep the square inside the window.
-		player.X = rl.Clamp(player.X, 0, screenWidth-playerSize)
-		player.Y = rl.Clamp(player.Y, 0, screenHeight-playerSize)
-
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
-		rl.DrawRectangleV(player, rl.NewVector2(playerSize, playerSize), rl.Maroon)
+		ship.Draw()
 		rl.EndDrawing()
 	}
 }
