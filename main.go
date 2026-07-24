@@ -26,7 +26,7 @@ func main() {
 	}
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship)
+	physics := NewPhysics(ship, asteroids)
 
 	for !rl.WindowShouldClose() {
 		physics.Update(float64(rl.GetFrameTime()))
