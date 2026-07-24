@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 
@@ -56,6 +57,10 @@ func main() {
 	var scavenger Scavenger
 	spacewalking := false
 
+	// Set once the astronaut's health runs out on a spacewalk. The simulation
+	// freezes and a GAME OVER banner takes over the HUD.
+	gameOver := false
+
 	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
 	// so scavenging and other mechanics can be tested without dying.
 	godMode := false
@@ -84,63 +89,72 @@ func main() {
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
-		// Toggle debug god mode (player ship invincible) with G.
-		if rl.IsKeyPressed(rl.KeyG) {
-			godMode = !godMode
-		}
+		// Once the astronaut is gone the world stops simulating; only the render pass
+		// below keeps running so the GAME OVER banner stays on screen.
+		if !gameOver {
+			// Toggle debug god mode (player ship invincible) with G.
+			if rl.IsKeyPressed(rl.KeyG) {
+				godMode = !godMode
+			}
 
-		// Periodically send in another enemy from beyond the edge of the view.
-		enemySpawnTimer -= dt
-		if enemySpawnTimer <= 0 {
-			spawnEnemy()
-			enemySpawnTimer = enemySpawnInterval
-		}
+			// Periodically send in another enemy from beyond the edge of the view.
+			enemySpawnTimer -= dt
+			if enemySpawnTimer <= 0 {
+				spawnEnemy()
+				enemySpawnTimer = enemySpawnInterval
+			}
 
-		if spacewalking {
-			if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
-				// Drop whatever's in hand back into space before climbing aboard.
-				scavenger.DropHeld(physics, &player)
-				physics.DetachPlayer()
-				spacewalking = false
+			if spacewalking {
+				if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
+					// Drop whatever's in hand back into space before climbing aboard.
+					scavenger.DropHeld(physics, &player)
+					physics.DetachPlayer()
+					spacewalking = false
+				} else {
+					// Grab, drag, and attach loose parts while out on the walk.
+					scavenger.Update(physics, ship, &player, camera)
+				}
+			} else if rl.IsKeyPressed(rl.KeyF) {
+				player.EjectFrom(ship)
+				physics.AttachPlayer(&player)
+				spacewalking = true
+			}
+
+			projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
+			particles.Update(dt)
+
+			live := projectiles[:0]
+			for _, pr := range projectiles {
+				pr.Update(dt)
+				if !pr.Expired() {
+					live = append(live, pr)
+				}
+			}
+			projectiles = live
+
+			projectiles = physics.ResolveProjectiles(projectiles)
+
+			// A spacewalk that runs the astronaut out of health ends the game.
+			if spacewalking && player.Dead() {
+				gameOver = true
+			}
+
+			targetZoom := float32(pilotingZoom)
+			if spacewalking {
+				targetZoom = spacewalkZoom
+			}
+			camera.Zoom += (targetZoom - camera.Zoom) * float32(1-math.Exp(-zoomEaseSpeed*float64(dt)))
+
+			var followPoint rl.Vector2
+			if spacewalking {
+				followPoint = player.Position
 			} else {
-				// Grab, drag, and attach loose parts while out on the walk.
-				scavenger.Update(physics, ship, &player, camera)
+				followPoint = rl.NewVector2(ship.Position.X, ship.Position.Y-cellSize*0.5)
 			}
-		} else if rl.IsKeyPressed(rl.KeyF) {
-			player.EjectFrom(ship)
-			physics.AttachPlayer(&player)
-			spacewalking = true
+			te := float32(1 - math.Exp(-cameraFollowSpeed*float64(dt)))
+			camera.Target.X += (followPoint.X - camera.Target.X) * te
+			camera.Target.Y += (followPoint.Y - camera.Target.Y) * te
 		}
-
-		projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
-		particles.Update(dt)
-
-		live := projectiles[:0]
-		for _, pr := range projectiles {
-			pr.Update(dt)
-			if !pr.Expired() {
-				live = append(live, pr)
-			}
-		}
-		projectiles = live
-
-		projectiles = physics.ResolveProjectiles(projectiles)
-
-		targetZoom := float32(pilotingZoom)
-		if spacewalking {
-			targetZoom = spacewalkZoom
-		}
-		camera.Zoom += (targetZoom - camera.Zoom) * float32(1-math.Exp(-zoomEaseSpeed*float64(dt)))
-
-		var followPoint rl.Vector2
-		if spacewalking {
-			followPoint = player.Position
-		} else {
-			followPoint = rl.NewVector2(ship.Position.X, ship.Position.Y-cellSize*0.5)
-		}
-		te := float32(1 - math.Exp(-cameraFollowSpeed*float64(dt)))
-		camera.Target.X += (followPoint.X - camera.Target.X) * te
-		camera.Target.Y += (followPoint.Y - camera.Target.Y) * te
 
 		rl.BeginTextureMode(target)
 		rl.ClearBackground(rl.Black)
@@ -180,6 +194,10 @@ func main() {
 		}
 		DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
 		rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
+		// While out on a walk, show the astronaut's health as a top-left readout.
+		if spacewalking {
+			drawPlayerHealthHUD(player.Health)
+		}
 		// Debug indicator: show god-mode state and its toggle key in the corner.
 		debugLabel := "G: god mode OFF"
 		debugColor := rl.Gray
@@ -188,6 +206,9 @@ func main() {
 			debugColor = rl.Lime
 		}
 		rl.DrawText(debugLabel, 6, 6, 10, debugColor)
+		if gameOver {
+			drawGameOver()
+		}
 		rl.EndTextureMode()
 
 		rl.BeginDrawing()
@@ -195,6 +216,29 @@ func main() {
 		rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
 		rl.EndDrawing()
 	}
+}
+
+// drawPlayerHealthHUD draws the astronaut's spacewalk health as a labeled bar in
+// the top-left, below the debug indicator.
+func drawPlayerHealthHUD(health float32) {
+	frac := health / playerMaxHealth
+	if frac < 0 {
+		frac = 0
+	}
+	const barX, barY int32 = 6, 20
+	const barWidth, barHeight int32 = 60, 6
+	rl.DrawRectangle(barX, barY, barWidth, barHeight, rl.NewColor(0, 0, 0, 160))
+	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
+	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
+	rl.DrawText(fmt.Sprintf("HP %d", int(math.Ceil(float64(health)))), barX+barWidth+4, barY-2, 10, rl.RayWhite)
+}
+
+// drawGameOver dims the frozen scene and centers a GAME OVER banner over it.
+func drawGameOver() {
+	rl.DrawRectangle(0, 0, gameWidth, gameHeight, rl.NewColor(0, 0, 0, 140))
+	const fontSize int32 = 40
+	w := rl.MeasureText("GAME OVER", fontSize)
+	rl.DrawText("GAME OVER", (gameWidth-w)/2, gameHeight/2-fontSize/2, fontSize, rl.Red)
 }
 
 func emitExhaust(ship *Ship, controls Controls, particles *ParticleSystem) {

@@ -28,14 +28,18 @@ const (
 
 	damagePerImpulse = 0.05
 	projectileDamage = 5.0
+	// playerDamagePerImpulse scales collision impulse into astronaut damage. The
+	// spacesuit is fragile (15 hp), so ramming an asteroid or a ship hurts fast.
+	playerDamagePerImpulse = 0.05
 )
 
 const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
-	// collisionLoose and collisionPlayer have no damage handler registered against
-	// any type, so those bodies bounce off everything via the solver but never deal
-	// or take damage.
+	// collisionLoose has no damage handler registered against any type, so loose
+	// parts bounce off everything via the solver but never deal or take damage.
+	// collisionPlayer takes impact damage from asteroids and ships (see NewPhysics)
+	// but deals none.
 	collisionLoose  cp.CollisionType = 3
 	collisionPlayer cp.CollisionType = 4
 )
@@ -174,7 +178,30 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		}
 	}
 
+	// The astronaut takes impact damage from hard knocks against asteroids and
+	// ships while out on a spacewalk; the solver still handles the bounce.
+	playerAsteroid := space.NewCollisionHandler(collisionPlayer, collisionAsteroid)
+	playerAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
+	}
+	playerShipHandler := space.NewCollisionHandler(collisionPlayer, collisionShip)
+	playerShipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
+	}
+
 	return p
+}
+
+// damagePlayer subtracts amount from the spacewalking astronaut's health, clamped
+// at zero. No-op when no one is out on a walk.
+func (p *Physics) damagePlayer(amount float64) {
+	if p.player == nil {
+		return
+	}
+	p.player.Health -= float32(amount)
+	if p.player.Health < 0 {
+		p.player.Health = 0
+	}
 }
 
 func damagePart(part *Part, impulse float64) {
@@ -199,6 +226,11 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 }
 
 func (p *Physics) projectileHit(pr *Projectile) bool {
+	// A spacewalking astronaut can be shot; a hit consumes the round and wounds them.
+	if p.player != nil && dist(pr.Position, p.player.Position) <= playerRadius {
+		p.damagePlayer(projectileDamage)
+		return true
+	}
 	for _, sb := range p.ships {
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
 			// The projectile is consumed on contact either way; in god mode the
