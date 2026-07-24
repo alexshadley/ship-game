@@ -69,7 +69,12 @@ func main() {
 	// It's declared before wiring the player ship's controller, which reads the
 	// flag to know whether to accept keyboard input.
 	var player Player
+	var scavenger Scavenger
 	spacewalking := false
+
+	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
+	// so scavenging and other mechanics can be tested without dying.
+	godMode := false
 
 	// The player and the AI enemies are all run by the physics from Controls; only
 	// the source of those controls (keyboard vs. AI) differs.
@@ -79,17 +84,33 @@ func main() {
 		physics.AddShip(e, enemyAIs[i])
 	}
 
+	// Wire debug hooks: mark the player's ship and share the god-mode flag so the
+	// damage handlers can spare it, then scatter salvageable parts to scavenge.
+	physics.playerShip = ship
+	physics.godMode = &godMode
+	physics.SeedLooseParts(40)
+
 	var projectiles []*Projectile
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
+		// Toggle debug god mode (player ship invincible) with G.
+		if rl.IsKeyPressed(rl.KeyG) {
+			godMode = !godMode
+		}
+
 		if spacewalking {
 			// Press Shift while close to the cockpit to climb back in and resume
 			// piloting.
 			if player.NearCockpit(ship) && (rl.IsKeyPressed(rl.KeyLeftShift) || rl.IsKeyPressed(rl.KeyRightShift)) {
+				// Drop whatever's in hand back into space before climbing aboard.
+				scavenger.DropHeld(physics, &player)
 				physics.DetachPlayer()
 				spacewalking = false
+			} else {
+				// Grab, drag, and attach loose parts while out on the walk.
+				scavenger.Update(physics, ship, &player, camera)
 			}
 		} else if rl.IsKeyPressed(rl.KeyF) {
 			// Press F to pop out the back of the cockpit and begin a spacewalk.
@@ -162,6 +183,8 @@ func main() {
 		ship.Draw()
 		if spacewalking {
 			player.Draw()
+			// The part being scavenged draws over the ship as a placement preview.
+			scavenger.Draw(ship)
 		}
 		rl.EndMode2D()
 
@@ -171,13 +194,23 @@ func main() {
 		hint := "F: spacewalk"
 		if spacewalking {
 			minimapPlayer = &player
-			hint = "WASD: move"
-			if player.NearCockpit(ship) {
+			hint = "WASD: move  ·  hold LMB: grab part"
+			if scavenger.Held != nil {
+				hint = "R: rotate  ·  release LMB: attach"
+			} else if player.NearCockpit(ship) {
 				hint = "SHIFT: re-enter ship"
 			}
 		}
 		DrawMinimap(ship, asteroids, enemies, minimapPlayer)
 		rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
+		// Debug indicator: show god-mode state and its toggle key in the corner.
+		debugLabel := "G: god mode OFF"
+		debugColor := rl.Gray
+		if godMode {
+			debugLabel = "G: GOD MODE ON"
+			debugColor = rl.Lime
+		}
+		rl.DrawText(debugLabel, 6, 6, 10, debugColor)
 		rl.EndTextureMode()
 
 		// Scale the render texture up to the full window.
