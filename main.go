@@ -52,7 +52,7 @@ func main() {
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship)
+	physics := NewPhysics(ship, asteroids)
 
 	for !rl.WindowShouldClose() {
 		physics.Update(float64(rl.GetFrameTime()))
