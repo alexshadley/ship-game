@@ -26,8 +26,11 @@ func main() {
 	}
 
 	asteroids := DefaultAsteroids()
+	physics := NewPhysics(ship)
 
 	for !rl.WindowShouldClose() {
+		physics.Update(float64(rl.GetFrameTime()))
+
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
 		for _, a := range asteroids {
