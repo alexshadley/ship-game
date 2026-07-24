@@ -85,7 +85,7 @@ func main() {
 
 		// Draw the game to the low-resolution render texture.
 		rl.BeginTextureMode(target)
-		rl.ClearBackground(rl.RayWhite)
+		rl.ClearBackground(rl.Black)
 		rl.BeginMode2D(camera)
 		for _, a := range asteroids {
 			a.Draw()
