@@ -97,7 +97,7 @@ func main() {
 		}
 
 		if spacewalking {
-			if player.NearCockpit(ship) && (rl.IsKeyPressed(rl.KeyLeftShift) || rl.IsKeyPressed(rl.KeyRightShift)) {
+			if player.NearCockpit(ship) && rl.IsKeyPressed(rl.KeyF) {
 				// Drop whatever's in hand back into space before climbing aboard.
 				scavenger.DropHeld(physics, &player)
 				physics.DetachPlayer()
@@ -175,7 +175,7 @@ func main() {
 			if scavenger.Held != nil {
 				hint = "R: rotate  ·  release LMB: attach"
 			} else if player.NearCockpit(ship) {
-				hint = "SHIFT: re-enter ship"
+				hint = "F: re-enter ship"
 			}
 		}
 		DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
