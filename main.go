@@ -25,7 +25,11 @@ func main() {
 		log.Printf("default ship is invalid: %v", err)
 	}
 
+	physics := NewPhysics(ship)
+
 	for !rl.WindowShouldClose() {
+		physics.Update(float64(rl.GetFrameTime()))
+
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
 		ship.Draw()
