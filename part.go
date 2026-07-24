@@ -152,15 +152,15 @@ type partSpec struct {
 const partWeight float32 = 2.0
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 25, weight: partWeight, color: rl.SkyBlue},
-	PartBlock:   {health: 50, weight: partWeight, color: rl.Gray},
+	PartCockpit: {health: 75, weight: partWeight, color: rl.SkyBlue},
+	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray},
 	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
-	PartArmor:  {health: 150, weight: 2 * partWeight, color: rl.DarkBlue},
-	PartEngine: {health: 50, weight: partWeight, color: rl.Orange},
+	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
+	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
 
-	PartControlThruster: {health: 50, weight: partWeight, color: rl.Purple},
-	PartPDC:             {health: 20, weight: partWeight, color: rl.DarkGreen},
-	PartSlowPDC:         {health: 20, weight: partWeight, color: rl.DarkBrown},
+	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple},
+	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen},
+	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
 }
 
 func NewPart(t PartType, facing Facing) *Part {
