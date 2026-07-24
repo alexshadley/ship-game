@@ -39,7 +39,7 @@ const (
 	// projectileDamage is the part health removed by a single projectile hit. It's
 	// a flat amount (unlike asteroid impacts, which scale with impulse), so cannon
 	// fire chews through parts at a predictable rate.
-	projectileDamage = 20.0
+	projectileDamage = 5.0
 )
 
 // Collision types tag shapes so the space can route ship↔asteroid contacts to
