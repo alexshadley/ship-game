@@ -128,12 +128,14 @@ func (s *Ship) Draw() {
 		drawCell(center, cellSize, rotDeg, rl.DarkGray)
 		drawCell(center, cellSize-3, rotDeg, partSpecs[p.Type].color)
 
-		if p.Type == PartEngine {
-			s.drawEngineFlame(c)
+		// Parts whose facing is meaningful get an in-cell arrow showing it.
+		switch p.Type {
+		case PartCockpit:
+			s.drawFacingIndicator(c, p.Facing, rl.DarkBlue)
+		case PartEngine:
+			s.drawFacingIndicator(c, p.Facing, rl.Red)
 		}
 	}
-
-	s.drawNose()
 }
 
 // drawCell draws a square of the given size centered at center, rotated by
@@ -144,21 +146,32 @@ func drawCell(center rl.Vector2, size, rotDeg float32, color rl.Color) {
 	rl.DrawRectanglePro(rec, origin, rotDeg, color)
 }
 
-// drawNose draws a small triangle at the cockpit indicating the ship's heading.
-func (s *Ship) drawNose() {
-	tip := s.worldPoint(0, -cellSize*0.9)
-	left := s.worldPoint(-cellSize*0.32, -cellSize*0.45)
-	right := s.worldPoint(cellSize*0.32, -cellSize*0.45)
-	rl.DrawTriangle(tip, left, right, rl.DarkBlue)
-}
-
-// drawEngineFlame draws a small exhaust plume behind an engine, opposite the
-// ship's forward heading.
-func (s *Ship) drawEngineFlame(c GridCoord) {
+// drawFacingIndicator draws a small arrow inside the part's cell pointing in its
+// facing direction. The arrow is kept within the cell bounds so a part never
+// draws outside its own 1x1 area.
+func (s *Ship) drawFacingIndicator(c GridCoord, facing Facing, color rl.Color) {
 	cx := float32(c.X) * cellSize
 	cy := float32(c.Y) * cellSize
-	left := s.worldPoint(cx-cellSize*0.22, cy+cellSize*0.5)
-	tip := s.worldPoint(cx, cy+cellSize*1.1)
-	right := s.worldPoint(cx+cellSize*0.22, cy+cellSize*0.5)
-	rl.DrawTriangle(left, tip, right, rl.Red)
+
+	a := facing.angle()
+	sin := float32(math.Sin(float64(a)))
+	cos := float32(math.Cos(float64(a)))
+
+	// Canonical "up"-pointing arrow relative to the cell center. All offsets
+	// stay within ±cellSize/2 so the arrow never leaves the cell.
+	pts := [3]rl.Vector2{
+		{X: 0, Y: -cellSize * 0.32},              // tip
+		{X: -cellSize * 0.26, Y: cellSize * 0.2}, // base left
+		{X: cellSize * 0.26, Y: cellSize * 0.2},  // base right
+	}
+
+	var w [3]rl.Vector2
+	for i, p := range pts {
+		// Rotate the point about the cell center by the facing angle, then place
+		// it in the world (which also applies the ship's own rotation).
+		rx := p.X*cos - p.Y*sin
+		ry := p.X*sin + p.Y*cos
+		w[i] = s.worldPoint(cx+rx, cy+ry)
+	}
+	rl.DrawTriangle(w[0], w[1], w[2], color)
 }

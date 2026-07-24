@@ -1,6 +1,10 @@
 package main
 
-import rl "github.com/gen2brain/raylib-go/raylib"
+import (
+	"math"
+
+	rl "github.com/gen2brain/raylib-go/raylib"
+)
 
 // PartType identifies a category of ship part.
 type PartType int
@@ -37,6 +41,21 @@ const (
 	FacingDown
 	FacingLeft
 )
+
+// angle returns the facing's rotation in radians, with Up at 0 and angles
+// increasing clockwise to match screen space (+X right, +Y down).
+func (f Facing) angle() float32 {
+	switch f {
+	case FacingRight:
+		return math.Pi / 2
+	case FacingDown:
+		return math.Pi
+	case FacingLeft:
+		return 3 * math.Pi / 2
+	default: // FacingUp
+		return 0
+	}
+}
 
 func (f Facing) String() string {
 	switch f {
