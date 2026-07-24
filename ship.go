@@ -49,6 +49,20 @@ func (s *Ship) Mass() float32 {
 	return total
 }
 
+// Radius returns a rough bounding radius (world px) around the cockpit origin:
+// the farthest occupied cell plus half a cell. Used by the enemy AI for obstacle
+// clearance, not for physics collision.
+func (s *Ship) Radius() float32 {
+	var maxR float64
+	for c := range s.Parts {
+		r := math.Hypot(float64(c.X), float64(c.Y))
+		if r > maxR {
+			maxR = r
+		}
+	}
+	return float32(maxR+0.5) * cellSize
+}
+
 // Validate enforces the ship's structural rules: exactly one cockpit, every part
 // connected to it, and every control thruster attached on exactly one side facing
 // that attachment.
