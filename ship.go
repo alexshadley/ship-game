@@ -179,17 +179,17 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartEngine, FacingDown))
 	s.AddPart(GridCoord{X: -2, Y: 0}, NewPart(PartControlThruster, FacingRight))
 	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
-	// Cannons sit at the front flanks with a clear line of fire; the cells directly
+	// PDCs sit at the front flanks with a clear line of fire; the cells directly
 	// ahead of them are empty rather than walled off by the nose blocks.
-	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartCannon, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartCannon, FacingUp))
+	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartPDC, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartPDC, FacingUp))
 	return s
 }
 
 // EnemyShip is the stock hostile hull: a deliberately underpowered, lopsided
 // wreck. Where the player's DefaultShip is a symmetric two-engine, two-thruster,
-// two-cannon craft, this thing limps along on a single engine, turns on a single
-// control thruster, and fires a single cannon. The cockpit juts out front-left
+// two-PDC craft, this thing limps along on a single engine, turns on a single
+// control thruster, and fires a single junk PDC. The cockpit juts out front-left
 // with no armor around it — an exposed, easy target — while the ragged hull
 // trails down and to the right toward its one engine, giving it a junky,
 // asymmetric silhouette.
@@ -204,9 +204,9 @@ func EnemyShip(pos rl.Vector2) *Ship {
 	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartBlock, FacingUp))
 	// The lone engine hangs off the rear-right, well off the centerline.
 	s.AddPart(GridCoord{X: 2, Y: 2}, NewPart(PartEngine, FacingDown))
-	// A single junk cannon bolted beside the cockpit, clear line of fire straight
-	// ahead. It fires at a third the rate of a standard cannon (see PartWeakCannon).
-	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartWeakCannon, FacingUp))
+	// A single junk PDC bolted beside the cockpit, clear line of fire straight
+	// ahead. It fires at a third the rate of a standard PDC (see PartSlowPDC).
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartSlowPDC, FacingUp))
 	// The one control thruster sticks out the far right end of the spine.
 	s.AddPart(GridCoord{X: 3, Y: 1}, NewPart(PartControlThruster, FacingLeft))
 	return s
@@ -377,9 +377,7 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Red)
 	case PartControlThruster:
 		drawControlThrusterNozzlesAt(center, baseAngle, p.Facing)
-	case PartCannon:
-		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
-	case PartWeakCannon:
+	case PartPDC, PartSlowPDC:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
 	}
 }

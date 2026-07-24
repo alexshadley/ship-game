@@ -68,7 +68,10 @@ func main() {
 	// so scavenging and other mechanics can be tested without dying.
 	godMode := false
 
-	physics.AddShip(ship, PilotInput{spacewalking: &spacewalking})
+	physics.AddShip(ship, PilotInput{
+		spacewalking: &spacewalking,
+		player:       PlayerInput{camera: &camera, ship: ship},
+	})
 
 	// Enemies arrive from offscreen: one at the start, then another every
 	// enemySpawnInterval seconds.
@@ -228,7 +231,7 @@ func main() {
 			rl.EndMode2D()
 
 			var minimapPlayer *Player
-			hint := "F: spacewalk"
+			hint := "hold LMB: fire PDCs  ·  F: spacewalk"
 			if spacewalking {
 				minimapPlayer = &player
 				hint = "WASD: move  ·  hold LMB: grab / pry off part  ·  hold RMB: repair"

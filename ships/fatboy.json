@@ -27,7 +27,7 @@
     {
       "x": 1,
       "y": 0,
-      "type": "Cannon",
+      "type": "PDC",
       "facing": "Up"
     },
     {

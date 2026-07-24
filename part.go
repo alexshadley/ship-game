@@ -18,10 +18,13 @@ const (
 	// PartControlThruster attaches on exactly one side; its Facing points toward
 	// that attached side, and it thrusts along the perpendicular axis.
 	PartControlThruster
-	PartCannon
-	// PartWeakCannon is a junk cannon: it fires the same shot as PartCannon but at a
-	// third the cadence (see weakCannonFireInterval). Stock enemies carry one.
-	PartWeakCannon
+	// PartPDC is a point-defense cannon: it slews its aim toward the ship's fire
+	// target anywhere within pdcHalfArc of its mount facing and spits short-ranged
+	// rounds (see FirePDCs).
+	PartPDC
+	// PartSlowPDC is a junk PDC: it fires the same round as PartPDC but at a
+	// third the cadence (see slowPDCFireInterval). Stock enemies carry one.
+	PartSlowPDC
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -52,10 +55,10 @@ func (t PartType) String() string {
 		return "Engine"
 	case PartControlThruster:
 		return "Control Thruster"
-	case PartCannon:
-		return "Cannon"
-	case PartWeakCannon:
-		return "Weak Cannon"
+	case PartPDC:
+		return "PDC"
+	case PartSlowPDC:
+		return "Slow PDC"
 	default:
 		return "Unknown"
 	}
@@ -131,8 +134,8 @@ type Part struct {
 	Facing Facing
 	Health float32
 	Weight float32
-	// FireCooldown is the per-cannon countdown to its next shot, so each cannon
-	// fires on its own cadence regardless of the ship's other cannons.
+	// FireCooldown is the per-PDC countdown to its next shot, so each PDC
+	// fires on its own cadence regardless of the ship's other PDCs.
 	FireCooldown float32
 }
 
@@ -156,8 +159,8 @@ var partSpecs = map[PartType]partSpec{
 	PartEngine: {health: 50, weight: partWeight, color: rl.Orange},
 
 	PartControlThruster: {health: 50, weight: partWeight, color: rl.Purple},
-	PartCannon:          {health: 20, weight: partWeight, color: rl.DarkGreen},
-	PartWeakCannon:      {health: 20, weight: partWeight, color: rl.DarkBrown},
+	PartPDC:             {health: 20, weight: partWeight, color: rl.DarkGreen},
+	PartSlowPDC:         {health: 20, weight: partWeight, color: rl.DarkBrown},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

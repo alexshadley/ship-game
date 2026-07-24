@@ -20,14 +20,12 @@ const (
 const (
 	enemyActionMin = 1.0
 	enemyActionMax = 3.0
-	enemyTurnP     = 1.5
-	enemyTurnD     = 0.5
-	enemyFireAngle = 0.3
+	enemyTurnP = 1.5
+	enemyTurnD = 0.5
 	// enemyFireRange is how close (world px) an enemy must be to the player before
-	// it will fire. It's roughly the piloting view's visible half-extent (~1470 at
-	// pilotingZoom) so enemies engage around the time they come onscreen, without
-	// tying the rule to the exact viewport size.
-	enemyFireRange = 1400
+	// it will fire. PDC rounds fizzle out around 900 px (see pdcProjectileDrag),
+	// so this sits inside that reach so rounds still arrive with some pace.
+	enemyFireRange = 800
 
 	// avoidLookahead is how far ahead (world px) beyond an obstacle's clearance an
 	// enemy starts reacting to it.
@@ -82,8 +80,11 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	var fire bool
 	switch ai.action {
 	case ActionAttack:
+		// PDCs slew their own aim, so attacking is just closing to range and
+		// pulling the trigger; pointing the nose at the player is for show (and
+		// keeps the forward-mounted arcs on target).
 		desired = aimHeading
-		fire = inFireRange && float32(math.Abs(float64(angleDiff(ai.ship.Direction, aimHeading)))) < enemyFireAngle
+		fire = inFireRange
 	case ActionMoveCloser:
 		desired = aimHeading
 		thrust = 1
@@ -105,7 +106,9 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	err := angleDiff(desired, ai.ship.Direction)
 	turn := clamp(err*enemyTurnP-ai.ship.AngularVelocity*enemyTurnD, -1, 1)
 
-	return Controls{Thrust: thrust, Turn: turn, Fire: fire}
+	// The fire target is the player's cockpit: the target ship's origin is its
+	// cockpit cell, so the offset from our origin is simply the position delta.
+	return Controls{Thrust: thrust, Turn: turn, Fire: fire, FireTarget: rl.NewVector2(dx, dy)}
 }
 
 // avoidHeading blends repulsion from nearby asteroids and the player into the unit

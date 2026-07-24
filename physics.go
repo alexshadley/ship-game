@@ -253,8 +253,9 @@ func (p *Physics) damageShipShapePart(shape *cp.Shape, impulse float64) {
 }
 
 // ResolveProjectiles tests every projectile against every ship part and asteroid,
-// consuming any that connect. Projectiles carry no team, so a ship's own shots can
-// strike it — friendly fire is intentional. Survivors are returned.
+// consuming any that connect. A round passes harmlessly through the ship that
+// fired it (see Projectile.Owner) but strikes everything else, friend or foe.
+// Survivors are returned.
 func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 	live := projectiles[:0]
 	for _, pr := range projectiles {
@@ -273,6 +274,10 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 		return true
 	}
 	for _, sb := range p.ships {
+		// A ship's own rounds fly through it without connecting.
+		if sb.ship == pr.Owner {
+			continue
+		}
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
 			// The projectile is consumed on contact either way; in god mode the
 			// player's ship simply shrugs it off without losing health.
@@ -447,7 +452,7 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 		emitExhaust(sb.ship, sb.controls, particles)
 
-		projectiles = append(projectiles, sb.ship.FireCannons(float32(dt), sb.controls.Fire)...)
+		projectiles = append(projectiles, sb.ship.FirePDCs(float32(dt), sb.controls)...)
 	}
 	p.ships = survivors
 
@@ -612,7 +617,7 @@ func (p *Physics) cullDeadLooseParts() {
 
 // scavengePartTypes are the part types scattered as free debris for the player to
 // salvage — every type except the cockpit (a ship has exactly one, at {0,0}).
-var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartCannon}
+var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartPDC}
 
 // Loose-part scatter tuning: n stationary parts drift in a ring around the world
 // origin, close enough to reach on a spacewalk but clear of the ship's spawn.
