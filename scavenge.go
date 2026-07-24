@@ -9,6 +9,10 @@ import (
 // grid. Beyond this the part just trails the cursor freely.
 const scavengeSnapRange = cellSize * 2
 
+// scavengePryDuration is how long, in seconds, the player must hold left click
+// over one of the ship's own parts before it pries loose into their hands.
+const scavengePryDuration = 1.0
+
 // Scavenger is the spacewalk part-scavenging tool: while outside the ship the
 // player holds left click over a loose part to pick it up, drags it to the ship
 // (where it snaps to the grid), presses R to rotate it, and releases to attach.
@@ -17,6 +21,14 @@ const scavengeSnapRange = cellSize * 2
 type Scavenger struct {
 	// Held is the part being dragged, or nil when nothing is grabbed.
 	Held *Part
+
+	// prying tracks the dwell-to-detach interaction: while the player holds left
+	// click over one of the ship's own parts, pryTimer accumulates against
+	// scavengePryDuration; on completion that part detaches into Held. pryCoord is
+	// the ship cell currently being pried.
+	prying   bool
+	pryCoord GridCoord
+	pryTimer float32
 
 	// The placement resolved by the most recent Update, consumed by Draw and by
 	// the release handler. When snapped, the part locks to snapCoord on the ship;
@@ -41,13 +53,20 @@ func mouseWorld(camera rl.Camera2D) rl.Vector2 {
 // press, resolve where a held part would land (snapping to the ship's grid when
 // near it), rotate it 90° on R, and on release either attach it (valid snap) or
 // drop it back into the debris field. It only does anything while spacewalking.
-func (sc *Scavenger) Update(physics *Physics, ship *Ship, player *Player, camera rl.Camera2D) {
+func (sc *Scavenger) Update(physics *Physics, ship *Ship, player *Player, camera rl.Camera2D, dt float32) {
 	wp := mouseWorld(camera)
 
 	if sc.Held == nil {
+		// A press grabs a loose part outright; with none under the cursor, fall
+		// through to the dwell-to-pry interaction against the ship's own parts.
 		if rl.IsMouseButtonPressed(rl.MouseButtonLeft) {
-			sc.Held = physics.GrabLoosePart(wp)
+			if grabbed := physics.GrabLoosePart(wp); grabbed != nil {
+				sc.Held = grabbed
+				sc.prying = false
+				return
+			}
 		}
+		sc.updatePry(physics, ship, wp, dt)
 		return
 	}
 
@@ -60,6 +79,40 @@ func (sc *Scavenger) Update(physics *Physics, ship *Ship, player *Player, camera
 
 	if rl.IsMouseButtonReleased(rl.MouseButtonLeft) {
 		sc.release(physics, ship, player)
+	}
+}
+
+// updatePry advances the dwell-to-detach interaction while nothing is held.
+// Holding left click over one of the ship's own (non-cockpit) parts for
+// scavengePryDuration pries it loose into Held; that removal can sever other
+// parts from the cockpit, which break off as debris. Moving to a different cell,
+// pointing off the ship, or releasing resets the timer.
+func (sc *Scavenger) updatePry(physics *Physics, ship *Ship, wp rl.Vector2, dt float32) {
+	if !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
+		sc.prying = false
+		return
+	}
+
+	c := ship.gridAtWorld(wp)
+	if part, ok := ship.Parts[c]; !ok || part.Type == PartCockpit {
+		sc.prying = false
+		return
+	}
+
+	if !sc.prying || sc.pryCoord != c {
+		sc.prying = true
+		sc.pryCoord = c
+		sc.pryTimer = 0
+	}
+
+	sc.pryTimer += dt
+	if sc.pryTimer >= scavengePryDuration {
+		sc.Held = physics.DetachPart(ship, c)
+		sc.prying = false
+		sc.pryTimer = 0
+		if sc.Held != nil {
+			sc.resolvePlacement(ship, wp)
+		}
 	}
 }
 
@@ -133,6 +186,9 @@ var (
 // nothing when no part is held.
 func (sc *Scavenger) Draw(ship *Ship) {
 	if sc.Held == nil {
+		if sc.prying {
+			sc.drawPryProgress(ship)
+		}
 		return
 	}
 	fill := partSpecs[sc.Held.Type].color
@@ -170,4 +226,17 @@ func (sc *Scavenger) Draw(ship *Ship) {
 		drawCenterOfMassGhost(ship.worldPoint(cur.X, cur.Y))
 	}
 	drawCenterOfMassMarker(ship.worldPoint(com.X, com.Y), col)
+}
+
+// drawPryProgress rings the part being pried with an arc that fills as the hold
+// approaches scavengePryDuration, so the player sees the detach charging up.
+func (sc *Scavenger) drawPryProgress(ship *Ship) {
+	center := ship.worldPoint(float32(sc.pryCoord.X)*cellSize, float32(sc.pryCoord.Y)*cellSize)
+	frac := sc.pryTimer / scavengePryDuration
+	if frac > 1 {
+		frac = 1
+	}
+	const r = cellSize * 0.45
+	rl.DrawCircleSector(center, r, -90, -90+360*frac, 24, rl.NewColor(255, 210, 40, 150))
+	rl.DrawCircleLines(int32(center.X), int32(center.Y), r, rl.NewColor(255, 210, 40, 230))
 }

@@ -131,7 +131,7 @@ func main() {
 					spacewalking = false
 				} else {
 					// Grab, drag, and attach loose parts while out on the walk.
-					scavenger.Update(physics, ship, &player, camera)
+					scavenger.Update(physics, ship, &player, camera, dt)
 				}
 			} else if rl.IsKeyPressed(rl.KeyF) {
 				player.EjectFrom(ship)
@@ -200,9 +200,11 @@ func main() {
 			hint := "F: spacewalk"
 			if spacewalking {
 				minimapPlayer = &player
-				hint = "WASD: move  ·  hold LMB: grab part"
+				hint = "WASD: move  ·  hold LMB: grab / pry off part"
 				if scavenger.Held != nil {
 					hint = "R: rotate  ·  release LMB: attach"
+				} else if scavenger.prying {
+					hint = "hold to pry part loose…"
 				} else if player.NearCockpit(ship) {
 					hint = "F: re-enter ship"
 				}
