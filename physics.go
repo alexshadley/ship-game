@@ -494,7 +494,7 @@ func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel
 
 // scavengePartTypes are the part types scattered as free debris for the player to
 // salvage — every type except the cockpit (a ship has exactly one, at {0,0}).
-var scavengePartTypes = []PartType{PartBlock, PartEngine, PartControlThruster, PartCannon}
+var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartCannon}
 
 // Loose-part scatter tuning: n stationary parts drift in a ring around the world
 // origin, close enough to reach on a spacewalk but clear of the ship's spawn.

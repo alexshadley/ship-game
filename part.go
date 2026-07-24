@@ -11,6 +11,9 @@ type PartType int
 const (
 	PartCockpit PartType = iota
 	PartBlock
+	// PartArmor is a heavy plated block: triple a normal block's health at twice
+	// its weight (see partSpecs).
+	PartArmor
 	PartEngine
 	// PartControlThruster attaches on exactly one side; its Facing points toward
 	// that attached side, and it thrusts along the perpendicular axis.
@@ -27,6 +30,8 @@ func (t PartType) String() string {
 		return "Cockpit"
 	case PartBlock:
 		return "Block"
+	case PartArmor:
+		return "Armor"
 	case PartEngine:
 		return "Engine"
 	case PartControlThruster:
@@ -121,14 +126,18 @@ type partSpec struct {
 	color  rl.Color
 }
 
-// partWeight is the mass of every part. All parts weigh the same, so a ship's
-// center of mass is just the centroid of its occupied cells.
+// partWeight is the mass of a standard part. Most parts weigh the same, so a
+// ship's center of mass is close to the centroid of its occupied cells; heavy
+// parts like armor deviate from that and are handled by the true mass-weighted
+// center of mass (see the physics body's shape masses).
 const partWeight float32 = 2.0
 
 var partSpecs = map[PartType]partSpec{
 	PartCockpit: {health: 25, weight: partWeight, color: rl.SkyBlue},
 	PartBlock:   {health: 50, weight: partWeight, color: rl.Gray},
-	PartEngine:  {health: 50, weight: partWeight, color: rl.Orange},
+	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
+	PartArmor:  {health: 150, weight: 2 * partWeight, color: rl.DarkBlue},
+	PartEngine: {health: 50, weight: partWeight, color: rl.Orange},
 
 	PartControlThruster: {health: 50, weight: partWeight, color: rl.Purple},
 	PartCannon:          {health: 20, weight: partWeight, color: rl.DarkGreen},
