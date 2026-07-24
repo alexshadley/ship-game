@@ -52,33 +52,27 @@ func main() {
 	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
 
 	asteroids := DefaultAsteroids()
-	physics := NewPhysics(ship, asteroids)
+	physics := NewPhysics(asteroids)
 	particles := NewParticleSystem()
 
+	// The player and the AI enemies are all run by the physics from Controls; only
+	// the source of those controls (keyboard vs. AI) differs.
+	physics.AddShip(ship, PlayerInput{})
+	enemies, enemyAIs := DefaultEnemies(ship)
+	for i, e := range enemies {
+		physics.AddShip(e, enemyAIs[i])
+	}
+
 	var projectiles []*Projectile
-	// Time until the cannons may fire again while Shift is held.
-	var fireCooldown float32
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
-		physics.Update(float64(dt))
 
-		// Spawn exhaust from whatever is firing this frame, then advance all
-		// particles. Emission reads the same keys the physics uses for thrust.
-		emitExhaust(ship, particles)
+		// Step the whole simulation. Every ship pulls its own Controls, thrusts and
+		// turns under the same physics, spawns exhaust for whatever it's firing, and
+		// any that fired their cannons return projectiles.
+		projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
 		particles.Update(dt)
-
-		// Hold Shift to fire the cannons on a fixed interval. Releasing the key
-		// resets the cooldown so the first shot on the next press is immediate.
-		if rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift) {
-			fireCooldown -= dt
-			if fireCooldown <= 0 {
-				projectiles = append(projectiles, ship.FireCannons()...)
-				fireCooldown = cannonFireInterval
-			}
-		} else {
-			fireCooldown = 0
-		}
 
 		// Advance projectiles and drop any that have expired.
 		live := projectiles[:0]
@@ -105,6 +99,9 @@ func main() {
 		for _, pr := range projectiles {
 			pr.Draw()
 		}
+		for _, e := range enemies {
+			e.Draw()
+		}
 		// Loose parts (broken-off debris) drift in the same world frame as the ship.
 		for _, l := range physics.LooseParts() {
 			l.Draw()
@@ -113,7 +110,7 @@ func main() {
 		rl.EndMode2D()
 
 		// Overlay the minimap in screen (texture) space, on top of the world.
-		DrawMinimap(ship, asteroids)
+		DrawMinimap(ship, asteroids, enemies)
 		rl.EndTextureMode()
 
 		// Scale the render texture up to the full window.
@@ -124,11 +121,12 @@ func main() {
 	}
 }
 
-// emitExhaust spawns exhaust particles for each engine and control thruster that
-// is firing this frame, mirroring the thrust controls: W fires the engines and
-// A/D fire the control thrusters.
-func emitExhaust(ship *Ship, particles *ParticleSystem) {
-	if rl.IsKeyDown(rl.KeyW) {
+// emitExhaust spawns exhaust particles for each engine and control thruster a
+// ship is firing this frame, mirroring its Controls: Thrust fires the engines and
+// Turn fires the control thrusters. It reads the same signals the physics uses to
+// move the ship, so any ship — player or AI — plumes exactly when it maneuvers.
+func emitExhaust(ship *Ship, controls Controls, particles *ParticleSystem) {
+	if controls.Thrust > 0 {
 		for _, src := range ship.EngineExhaustSources() {
 			for i := 0; i < engineParticlesPerFrame; i++ {
 				particles.Emit(src.Pos, src.Dir, ship.Velocity, engineExhaustColor)
@@ -136,11 +134,11 @@ func emitExhaust(ship *Ship, particles *ParticleSystem) {
 		}
 	}
 
-	// A and D held together cancel out to no turn, so emit no thruster plume.
+	// Turn's sign picks which thrusters fire; zero (or A+D cancelling) plumes none.
 	turn := 0
-	if a, d := rl.IsKeyDown(rl.KeyA), rl.IsKeyDown(rl.KeyD); a && !d {
+	if controls.Turn < 0 {
 		turn = -1
-	} else if d && !a {
+	} else if controls.Turn > 0 {
 		turn = 1
 	}
 	if turn != 0 {

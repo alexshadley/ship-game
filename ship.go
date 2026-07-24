@@ -17,9 +17,10 @@ const cellSize = 36
 type Ship struct {
 	Parts map[GridCoord]*Part
 
-	Position  rl.Vector2 // world position of the ship origin (cockpit)
-	Direction float32    // heading in radians; 0 points "up" (-Y on screen)
-	Velocity  rl.Vector2 // world-space velocity in pixels/sec
+	Position        rl.Vector2 // world position of the ship origin (cockpit)
+	Direction       float32    // heading in radians; 0 points "up" (-Y on screen)
+	Velocity        rl.Vector2 // world-space velocity in pixels/sec
+	AngularVelocity float32    // turning rate in radians/sec (+clockwise)
 
 	// Destroyed is set when the cockpit is lost; the ship's remaining parts have
 	// all been flung off as loose debris and it no longer participates in the sim.

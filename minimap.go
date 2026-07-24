@@ -25,7 +25,7 @@ const (
 //
 // Call this in screen (texture) space — outside BeginMode2D — so it stays fixed
 // as an overlay rather than moving with the camera.
-func DrawMinimap(ship *Ship, asteroids []*Asteroid) {
+func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship) {
 	center := rl.NewVector2(
 		gameWidth-minimapRadius-minimapMargin,
 		gameHeight-minimapRadius-minimapMargin,
@@ -54,17 +54,30 @@ func DrawMinimap(ship *Ship, asteroids []*Asteroid) {
 		rl.DrawCircleV(blip, r, rl.Gray)
 	}
 
+	// Enemy ships relative to the player, as red triangles pointing along their
+	// heading. Clip anything outside the disc.
+	for _, e := range enemies {
+		blip := rl.NewVector2(
+			center.X+(e.Position.X-ship.Position.X)*minimapScale,
+			center.Y+(e.Position.Y-ship.Position.Y)*minimapScale,
+		)
+		if dist(blip, center)+5 > minimapRadius {
+			continue
+		}
+		drawMinimapMarker(blip, e.Direction, rl.Red)
+	}
+
 	// Player ship: a small triangle at the center pointing along its heading.
-	drawMinimapShip(center, ship.Direction)
+	drawMinimapMarker(center, ship.Direction, rl.SkyBlue)
 }
 
-// drawMinimapShip draws the ship marker: a triangle pointing in the ship's
-// facing direction (dir 0 points "up", i.e. -Y).
-func drawMinimapShip(center rl.Vector2, dir float32) {
+// drawMinimapMarker draws a ship marker at pos: a triangle pointing in the
+// ship's facing direction (dir 0 points "up", i.e. -Y).
+func drawMinimapMarker(pos rl.Vector2, dir float32, color rl.Color) {
 	sin := float32(math.Sin(float64(dir)))
 	cos := float32(math.Cos(float64(dir)))
 
-	// Canonical up-pointing triangle relative to the center.
+	// Canonical up-pointing triangle relative to the marker position.
 	pts := [3]rl.Vector2{
 		{X: 0, Y: -5}, // nose
 		{X: -3.5, Y: 4},
@@ -73,11 +86,11 @@ func drawMinimapShip(center rl.Vector2, dir float32) {
 	var w [3]rl.Vector2
 	for i, p := range pts {
 		w[i] = rl.NewVector2(
-			center.X+p.X*cos-p.Y*sin,
-			center.Y+p.X*sin+p.Y*cos,
+			pos.X+p.X*cos-p.Y*sin,
+			pos.Y+p.X*sin+p.Y*cos,
 		)
 	}
-	rl.DrawTriangle(w[0], w[1], w[2], rl.SkyBlue)
+	rl.DrawTriangle(w[0], w[1], w[2], color)
 }
 
 // dist returns the Euclidean distance between two points.

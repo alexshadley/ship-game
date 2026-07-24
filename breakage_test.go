@@ -16,15 +16,23 @@ func breakPart(t *testing.T, s *Ship, c GridCoord) {
 	p.Health = 0
 }
 
+// addTestShip registers ship with a physics space and returns its shipBody so
+// tests can inspect per-ship state (mass counts) after breakage.
+func addTestShip(ship *Ship) (*Physics, *shipBody) {
+	phys := NewPhysics(nil)
+	phys.AddShip(ship, PlayerInput{})
+	return phys, phys.ships[len(phys.ships)-1]
+}
+
 // TestBreakStrandsPart: destroying the block at {1,1} disconnects the wing-tip
 // control thruster at {2,1} (its only path to the cockpit ran through {1,1}), so
 // the block vanishes and the thruster becomes a loose part.
 func TestBreakStrandsPart(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
-	phys := NewPhysics(ship, nil)
+	phys, sb := addTestShip(ship)
 
 	breakPart(t, ship, GridCoord{1, 1})
-	phys.handleBreakage()
+	phys.handleBreakage(sb)
 
 	if ship.Destroyed {
 		t.Fatal("ship should survive losing a block")
@@ -47,8 +55,8 @@ func TestBreakStrandsPart(t *testing.T) {
 		t.Errorf("ship left in an invalid state: %v", err)
 	}
 	// Thruster count must drop so the ship's turn strength reflects the loss.
-	if phys.thrusters != 1 {
-		t.Errorf("expected 1 thruster remaining, got %d", phys.thrusters)
+	if sb.thrusters != 1 {
+		t.Errorf("expected 1 thruster remaining, got %d", sb.thrusters)
 	}
 }
 
@@ -56,10 +64,10 @@ func TestBreakStrandsPart(t *testing.T) {
 func TestBreakCockpitDestroysShip(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
 	total := len(ship.Parts)
-	phys := NewPhysics(ship, nil)
+	phys, sb := addTestShip(ship)
 
 	breakPart(t, ship, GridCoord{0, 0})
-	phys.handleBreakage()
+	phys.handleBreakage(sb)
 
 	if !ship.Destroyed {
 		t.Fatal("ship should be destroyed when the cockpit is lost")
@@ -71,19 +79,19 @@ func TestBreakCockpitDestroysShip(t *testing.T) {
 	if got := len(phys.LooseParts()); got != total {
 		t.Errorf("expected %d loose parts, got %d", total, got)
 	}
-	if phys.engines != 0 || phys.thrusters != 0 {
-		t.Errorf("destroyed ship should have no engines/thrusters, got %d/%d", phys.engines, phys.thrusters)
+	if sb.engines != 0 || sb.thrusters != 0 {
+		t.Errorf("destroyed ship should have no engines/thrusters, got %d/%d", sb.engines, sb.thrusters)
 	}
 }
 
 // TestBreakNoStranding: destroying a peripheral part strands nothing else.
 func TestBreakNoStranding(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
-	phys := NewPhysics(ship, nil)
+	phys, sb := addTestShip(ship)
 
 	// The left cannon at {-1,0} is a leaf: nothing hangs off it.
 	breakPart(t, ship, GridCoord{-1, 0})
-	phys.handleBreakage()
+	phys.handleBreakage(sb)
 
 	if ship.Destroyed {
 		t.Fatal("ship should survive losing a cannon")
