@@ -127,6 +127,6 @@ func SpawnEnemy(target *Ship) (*Ship, Controller) {
 		target.Position.X+float32(math.Cos(angle))*enemySpawnRadius,
 		target.Position.Y+float32(math.Sin(angle))*enemySpawnRadius,
 	)
-	enemy := DefaultShip(pos)
+	enemy := EnemyShip(pos)
 	return enemy, NewEnemyAI(enemy, target)
 }
