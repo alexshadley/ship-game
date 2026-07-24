@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cannonMuzzleSpeed  = 600.0
+	cannonMuzzleSpeed  = 1200.0
 	cannonFireInterval = 0.18
 	projectileLifespan = 15.0
 )
