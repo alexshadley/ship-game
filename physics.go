@@ -600,6 +600,21 @@ func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
 	}
 }
 
+// PryTargetAt returns the ship and cell of a pryable (non-cockpit) part under
+// world point wp, ok=false if nothing pryable is there. Every simulated ship is a
+// candidate — the player's own and any enemy — so a spacewalking player can strip
+// parts off enemy hulls, not just their own. When ships overlap, the first in
+// p.ships wins; that's rare enough not to matter for a dwell interaction.
+func (p *Physics) PryTargetAt(wp rl.Vector2) (*Ship, GridCoord, bool) {
+	for _, sb := range p.ships {
+		c := sb.ship.gridAtWorld(wp)
+		if part, ok := sb.ship.Parts[c]; ok && part.Type != PartCockpit {
+			return sb.ship, c, true
+		}
+	}
+	return nil, GridCoord{}, false
+}
+
 // DetachPart pries the part at grid cell c off ship and returns it (nil if the
 // cell is empty, holds the cockpit, or the ship isn't simulated here). Because
 // the pried part may have been the only link between the cockpit and others,

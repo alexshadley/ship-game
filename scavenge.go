@@ -23,10 +23,11 @@ type Scavenger struct {
 	Held *Part
 
 	// prying tracks the dwell-to-detach interaction: while the player holds left
-	// click over one of the ship's own parts, pryTimer accumulates against
-	// scavengePryDuration; on completion that part detaches into Held. pryCoord is
-	// the ship cell currently being pried.
+	// click over a part of any ship (their own or an enemy's), pryTimer accumulates
+	// against scavengePryDuration; on completion that part detaches into Held.
+	// pryShip/pryCoord are the ship and cell currently being pried.
 	prying   bool
+	pryShip  *Ship
 	pryCoord GridCoord
 	pryTimer float32
 
@@ -83,31 +84,33 @@ func (sc *Scavenger) Update(physics *Physics, ship *Ship, player *Player, camera
 }
 
 // updatePry advances the dwell-to-detach interaction while nothing is held.
-// Holding left click over one of the ship's own (non-cockpit) parts for
-// scavengePryDuration pries it loose into Held; that removal can sever other
-// parts from the cockpit, which break off as debris. Moving to a different cell,
-// pointing off the ship, or releasing resets the timer.
+// Holding left click over any ship's (non-cockpit) part — the player's own or an
+// enemy's — for scavengePryDuration pries it loose into Held; that removal can
+// sever other parts from that ship's cockpit, which break off as debris. Moving to
+// a different cell or ship, pointing off every ship, or releasing resets the timer.
+// Pried enemy parts still snap onto the player's own ship (via resolvePlacement).
 func (sc *Scavenger) updatePry(physics *Physics, ship *Ship, wp rl.Vector2, dt float32) {
 	if !rl.IsMouseButtonDown(rl.MouseButtonLeft) {
 		sc.prying = false
 		return
 	}
 
-	c := ship.gridAtWorld(wp)
-	if part, ok := ship.Parts[c]; !ok || part.Type == PartCockpit {
+	target, c, ok := physics.PryTargetAt(wp)
+	if !ok {
 		sc.prying = false
 		return
 	}
 
-	if !sc.prying || sc.pryCoord != c {
+	if !sc.prying || sc.pryShip != target || sc.pryCoord != c {
 		sc.prying = true
+		sc.pryShip = target
 		sc.pryCoord = c
 		sc.pryTimer = 0
 	}
 
 	sc.pryTimer += dt
 	if sc.pryTimer >= scavengePryDuration {
-		sc.Held = physics.DetachPart(ship, c)
+		sc.Held = physics.DetachPart(sc.pryShip, c)
 		sc.prying = false
 		sc.pryTimer = 0
 		if sc.Held != nil {
@@ -187,7 +190,7 @@ var (
 func (sc *Scavenger) Draw(ship *Ship) {
 	if sc.Held == nil {
 		if sc.prying {
-			sc.drawPryProgress(ship)
+			sc.drawPryProgress()
 		}
 		return
 	}
@@ -229,9 +232,13 @@ func (sc *Scavenger) Draw(ship *Ship) {
 }
 
 // drawPryProgress rings the part being pried with an arc that fills as the hold
-// approaches scavengePryDuration, so the player sees the detach charging up.
-func (sc *Scavenger) drawPryProgress(ship *Ship) {
-	center := ship.worldPoint(float32(sc.pryCoord.X)*cellSize, float32(sc.pryCoord.Y)*cellSize)
+// approaches scavengePryDuration, so the player sees the detach charging up. It
+// tracks the pried ship (own or enemy), so the ring follows a moving target.
+func (sc *Scavenger) drawPryProgress() {
+	if sc.pryShip == nil {
+		return
+	}
+	center := sc.pryShip.worldPoint(float32(sc.pryCoord.X)*cellSize, float32(sc.pryCoord.Y)*cellSize)
 	frac := sc.pryTimer / scavengePryDuration
 	if frac > 1 {
 		frac = 1
