@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"math/rand"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 	"github.com/jakecoffman/cp"
@@ -59,6 +60,29 @@ type Physics struct {
 	player      *Player
 	playerBody  *cp.Body
 	playerShape *cp.Shape
+
+	// playerShip identifies the human-controlled ship, and godMode points at the
+	// main loop's debug flag. When godMode is set, the player's ship takes no
+	// damage from collisions or projectiles — a testing aid, wired in main.
+	playerShip *Ship
+	godMode    *bool
+}
+
+// playerInvincible reports whether damage to sb should be suppressed because it
+// is the player's ship and debug god mode is on.
+func (p *Physics) playerInvincible(sb *shipBody) bool {
+	return p.godMode != nil && *p.godMode && sb != nil && sb.ship == p.playerShip
+}
+
+// shipBodyFor returns the shipBody whose rigid body is body, or nil if none
+// (e.g. an asteroid or loose-part body).
+func (p *Physics) shipBodyFor(body *cp.Body) *shipBody {
+	for _, sb := range p.ships {
+		if sb.body == body {
+			return sb
+		}
+	}
+	return nil
 }
 
 func (p *Physics) AttachPlayer(pl *Player) {
@@ -125,6 +149,9 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	handler := space.NewCollisionHandler(collisionShip, collisionAsteroid)
 	handler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		shipShape, _ := arb.Shapes()
+		if p.playerInvincible(p.shipBodyFor(shipShape.Body())) {
+			return
+		}
 		if part, ok := shipShape.UserData.(*Part); ok {
 			damagePart(part, arb.TotalImpulse().Length())
 		}
@@ -134,10 +161,10 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	shipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		a, b := arb.Shapes()
 		impulse := arb.TotalImpulse().Length()
-		if part, ok := a.UserData.(*Part); ok {
+		if part, ok := a.UserData.(*Part); ok && !p.playerInvincible(p.shipBodyFor(a.Body())) {
 			damagePart(part, impulse)
 		}
-		if part, ok := b.UserData.(*Part); ok {
+		if part, ok := b.UserData.(*Part); ok && !p.playerInvincible(p.shipBodyFor(b.Body())) {
 			damagePart(part, impulse)
 		}
 	}
@@ -169,9 +196,13 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 func (p *Physics) projectileHit(pr *Projectile) bool {
 	for _, sb := range p.ships {
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
-			part.Health -= projectileDamage
-			if part.Health < 0 {
-				part.Health = 0
+			// The projectile is consumed on contact either way; in god mode the
+			// player's ship simply shrugs it off without losing health.
+			if !p.playerInvincible(sb) {
+				part.Health -= projectileDamage
+				if part.Health < 0 {
+					part.Health = 0
+				}
 			}
 			return true
 		}
@@ -401,12 +432,21 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	ry := float64(worldPos.Y) - bodyPos.Y
 	vel := cp.Vector{X: bodyVel.X - w*ry, Y: bodyVel.Y + w*rx}
 
+	p.addLoosePart(part, worldPos, sb.ship.Direction, vel, w)
+}
+
+// addLoosePart creates a free-floating body for part at world position pos with
+// the given rotation (radians), linear velocity, and spin, and records it in the
+// parallel looseParts/looseBodies slices. It is the low-level constructor shared
+// by spawnLoosePart (breakage) and DropPart (a scavenged part released back into
+// the field).
+func (p *Physics) addLoosePart(part *Part, pos rl.Vector2, rotation float32, vel cp.Vector, spin float64) {
 	m := float64(part.Weight)
 	body := cp.NewBody(m, cp.MomentForBox(m, cellSize, cellSize))
-	body.SetPosition(cp.Vector{X: float64(worldPos.X), Y: float64(worldPos.Y)})
-	body.SetAngle(float64(sb.ship.Direction))
+	body.SetPosition(cp.Vector{X: float64(pos.X), Y: float64(pos.Y)})
+	body.SetAngle(float64(rotation))
 	body.SetVelocityVector(vel)
-	body.SetAngularVelocity(w)
+	body.SetAngularVelocity(spin)
 	p.space.AddBody(body)
 
 	shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(cp.Vector{}, cellSize/2, cellSize/2), 0))
@@ -416,11 +456,93 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 
 	p.looseParts = append(p.looseParts, &LoosePart{
 		Part:     part,
-		Position: worldPos,
+		Position: pos,
 		Velocity: rl.NewVector2(float32(vel.X), float32(vel.Y)),
-		Rotation: sb.ship.Direction,
+		Rotation: rotation,
 	})
 	p.looseBodies = append(p.looseBodies, body)
+}
+
+// scavengePartTypes are the part types scattered as free debris for the player to
+// salvage — every type except the cockpit (a ship has exactly one, at {0,0}).
+var scavengePartTypes = []PartType{PartBlock, PartEngine, PartControlThruster, PartCannon}
+
+// Loose-part scatter tuning: n stationary parts drift in a ring around the world
+// origin, close enough to reach on a spacewalk but clear of the ship's spawn.
+const (
+	loosePartMinRadius = 250
+	loosePartMaxRadius = 1200
+)
+
+// SeedLooseParts scatters n random salvageable parts (assorted types and facings)
+// at rest in a ring around the origin, so there's debris to scavenge from the
+// start. A testing/onboarding aid, invoked once at startup.
+func (p *Physics) SeedLooseParts(n int) {
+	for i := 0; i < n; i++ {
+		angle := rand.Float64() * 2 * math.Pi
+		r := loosePartMinRadius + rand.Float64()*(loosePartMaxRadius-loosePartMinRadius)
+		pos := rl.NewVector2(float32(math.Cos(angle)*r), float32(math.Sin(angle)*r))
+		part := NewPart(scavengePartTypes[rand.Intn(len(scavengePartTypes))], Facing(rand.Intn(4)))
+		p.addLoosePart(part, pos, rand.Float32()*2*math.Pi, cp.Vector{}, 0)
+	}
+}
+
+// GrabLoosePart removes and returns the loose part whose cell contains world
+// point wp (nil if none), so the spacewalking player can pick it up and drag it.
+// It deletes the part's body and shape from the space and drops it from the
+// parallel loose slices; the caller now owns the returned *Part.
+func (p *Physics) GrabLoosePart(wp rl.Vector2) *Part {
+	for i, l := range p.looseParts {
+		// Transform wp into the part's local (un-rotated) frame and test it against
+		// the part's cellSize box, so grabbing respects the part's tumble.
+		sin := float32(math.Sin(float64(l.Rotation)))
+		cos := float32(math.Cos(float64(l.Rotation)))
+		dx := wp.X - l.Position.X
+		dy := wp.Y - l.Position.Y
+		lx := dx*cos + dy*sin
+		ly := -dx*sin + dy*cos
+		if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
+			continue
+		}
+
+		body := p.looseBodies[i]
+		body.EachShape(func(s *cp.Shape) { p.space.RemoveShape(s) })
+		p.space.RemoveBody(body)
+		p.looseParts = append(p.looseParts[:i], p.looseParts[i+1:]...)
+		p.looseBodies = append(p.looseBodies[:i], p.looseBodies[i+1:]...)
+		return l.Part
+	}
+	return nil
+}
+
+// DropPart releases a held part back into the loose-part field at world position
+// pos with rotation (radians), moving with velocity vel (typically the
+// astronaut's, so it stays within reach). Used when a drag ends somewhere the
+// part can't attach.
+func (p *Physics) DropPart(part *Part, pos rl.Vector2, rotation float32, vel rl.Vector2) {
+	p.addLoosePart(part, pos, rotation, cp.Vector{X: float64(vel.X), Y: float64(vel.Y)}, 0)
+}
+
+// AttachPart adds part to ship at grid cell c, building its collision shape on
+// the ship's body and recomputing the body's mass/moment/engine counts so the
+// enlarged ship flies correctly. It is the inverse of removeShipPart and mirrors
+// the per-part shape setup in AddShip. No-op if ship isn't simulated here.
+func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
+	for _, sb := range p.ships {
+		if sb.ship != ship {
+			continue
+		}
+		sb.ship.Parts[c] = part
+		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
+		shape := p.space.AddShape(cp.NewBox2(sb.body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
+		shape.SetCollisionType(collisionShip)
+		shape.SetElasticity(shipElasticity)
+		shape.SetFriction(0.4)
+		shape.UserData = part
+		sb.shipShapes[part] = shape
+		p.recomputeShipBody(sb)
+		return
+	}
 }
 
 // destroyShip scatters every remaining part of sb as loose debris and removes its

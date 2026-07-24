@@ -152,20 +152,42 @@ func (s *Ship) worldPoint(lx, ly float32) rl.Vector2 {
 	)
 }
 
-// partAtWorld returns the part whose cell world point wp lands in, or nil. It
-// inverts worldPoint (un-rotate by the ship's heading) then rounds to the nearest cell.
-func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
+// gridAtWorld returns the grid cell that world point wp lands in. It inverts
+// worldPoint: shift by the ship origin and un-rotate by the ship's heading to
+// recover local pixels, then round to the nearest cell (each part fills one
+// cellSize box around its center). The cell may or may not be occupied.
+func (s *Ship) gridAtWorld(wp rl.Vector2) GridCoord {
 	sin := float32(math.Sin(float64(s.Direction)))
 	cos := float32(math.Cos(float64(s.Direction)))
 	dx := wp.X - s.Position.X
 	dy := wp.Y - s.Position.Y
 	lx := dx*cos + dy*sin
 	ly := -dx*sin + dy*cos
-	c := GridCoord{
+	return GridCoord{
 		X: int(math.Round(float64(lx / cellSize))),
 		Y: int(math.Round(float64(ly / cellSize))),
 	}
-	return s.Parts[c]
+}
+
+// partAtWorld returns the part occupying the ship cell that world point wp lands
+// in, or nil if the point is off the ship.
+func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
+	return s.Parts[s.gridAtWorld(wp)]
+}
+
+// canAttachAt reports whether a scavenged part may be placed at grid cell c: the
+// cell must be empty and orthogonally adjacent to at least one existing part, so
+// every added part stays connected to the rest of the ship (and its cockpit).
+func (s *Ship) canAttachAt(c GridCoord) bool {
+	if _, occupied := s.Parts[c]; occupied {
+		return false
+	}
+	for _, n := range c.neighbors() {
+		if _, ok := s.Parts[n]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // worldVec rotates a local-frame vector into world space by the ship's direction,
@@ -247,10 +269,17 @@ func (s *Ship) Draw() {
 // its facing indicator. baseAngle is the world rotation of the frame it sits in
 // (the ship's Direction, or a debris rotation for loose parts).
 func drawPart(center rl.Vector2, baseAngle float32, p *Part) {
+	drawPartColored(center, baseAngle, p, partSpecs[p.Type].color)
+}
+
+// drawPartColored is drawPart with an explicit fill color, so a scavenged part
+// being placed can be tinted (e.g. red for an invalid spot) while keeping the
+// same outline, facing indicators, and geometry as a normal part.
+func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Color) {
 	rotDeg := baseAngle * 180 / math.Pi
 
 	drawCell(center, cellSize, rotDeg, rl.DarkGray)
-	drawCell(center, cellSize-3, rotDeg, partSpecs[p.Type].color)
+	drawCell(center, cellSize-3, rotDeg, fill)
 
 	switch p.Type {
 	case PartCockpit:
