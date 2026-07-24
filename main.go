@@ -28,11 +28,6 @@ func main() {
 	asteroids := DefaultAsteroids()
 
 	for !rl.WindowShouldClose() {
-		dt := rl.GetFrameTime()
-		for _, a := range asteroids {
-			a.Update(dt)
-		}
-
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
 		for _, a := range asteroids {
