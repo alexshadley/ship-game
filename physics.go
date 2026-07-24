@@ -11,7 +11,7 @@ import (
 // weights), so forces are in pixel·mass/s² and torque in pixel²·mass/s².
 const (
 	// engineThrust is the forward force produced by a single engine while W is held.
-	engineThrust = 1500.0
+	engineThrust = 3000.0
 	// thrusterTorque is the turning torque produced by a single control thruster
 	// while A or D is held.
 	thrusterTorque = 90000.0
