@@ -11,6 +11,12 @@ import (
 const (
 	engineThrust   = 3000.0
 	thrusterTorque = 90000.0
+	// engineStraightTolerance is how far (in world units) the combined engine
+	// thrust line may pass from the ship's center of mass and still count as
+	// "straight". Within this slack the net torque is dropped so a nearly
+	// symmetric engine layout drives forward instead of drifting into a slow
+	// spin; beyond it (e.g. a lone off-center engine) the rotation is kept.
+	engineStraightTolerance = cellSize * 0.2
 	// spaceDamping is the fraction of velocity that survives each second; it applies
 	// to every body, so anything unpowered coasts to a stop.
 	spaceDamping = 0.55
@@ -286,6 +292,13 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		// and torque accumulate here (both are zeroed by the integrator each step) and
 		// the turn torque is added on top of whatever the engines contributed.
 		if controls.Thrust != 0 {
+			// The net effect of the engines on the rigid body is fully described by
+			// their combined force and their combined torque about the center of
+			// mass, so accumulate both in local space rather than applying each
+			// force at its own cell.
+			cog := sb.body.CenterOfGravity()
+			var netForce cp.Vector
+			var netTorque float64
 			for c, part := range sb.ship.Parts {
 				if part.Type != PartEngine {
 					continue
@@ -295,9 +308,22 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 					X: float64(-off.X) * engineThrust * float64(controls.Thrust),
 					Y: float64(-off.Y) * engineThrust * float64(controls.Thrust),
 				}
-				point := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
-				sb.body.ApplyForceAtLocalPoint(local, point)
+				netForce = netForce.Add(local)
+				r := cp.Vector{X: float64(c.X)*cellSize - cog.X, Y: float64(c.Y)*cellSize - cog.Y}
+				netTorque += r.Cross(local)
 			}
+			// If the combined thrust line passes close enough to the center of mass,
+			// treat it as straight and drop the residual torque so a nearly symmetric
+			// layout doesn't slowly spin. A near-zero net force means the engines
+			// cancel out translationally and any torque is a deliberate couple, so
+			// leave it alone.
+			if f := netForce.Length(); f > 0 && math.Abs(netTorque)/f <= engineStraightTolerance {
+				netTorque = 0
+			}
+			// Apply the net force at the center of mass (zero torque contribution),
+			// then add the net torque on top.
+			sb.body.ApplyForceAtLocalPoint(netForce, cog)
+			sb.body.SetTorque(sb.body.Torque() + netTorque)
 		}
 		sb.body.SetTorque(sb.body.Torque() + thrusterTorque*float64(sb.thrusters)*float64(controls.Turn))
 		sb.controls = controls
