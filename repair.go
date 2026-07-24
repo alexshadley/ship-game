@@ -8,9 +8,9 @@ import (
 
 const (
 	// repairRange is how far, in world pixels, the astronaut can reach to mend a
-	// part: measured from the player to the target cell's center, so a part has to
-	// be within roughly one block to be worked on.
-	repairRange = cellSize * 1.5
+	// part: measured from the player to the nearest edge of the target cell, so a
+	// part has to be within a few blocks to be worked on.
+	repairRange = cellSize * 3
 	// repairRate is how much health a held beam restores per second. At 25/s a
 	// battered block (max 50) mends in about two seconds.
 	repairRate = 25.0
@@ -51,12 +51,12 @@ func (rt *RepairTool) Update(ship *Ship, player *Player, camera rl.Camera2D, dt 
 
 	wp := mouseWorld(camera)
 
-	// Target the part under the cursor, reachable only when its center is within
-	// one block of the astronaut.
+	// Target the part under the cursor, reachable when any part of its cell (not
+	// just the center) is within repairRange of the astronaut.
 	if part := ship.partAtWorld(wp); part != nil {
 		coord := ship.gridAtWorld(wp)
 		center := ship.worldPoint(float32(coord.X)*cellSize, float32(coord.Y)*cellSize)
-		if dist(player.Position, center) <= repairRange {
+		if ship.distToCell(player.Position, coord) <= repairRange {
 			maxHealth := partSpecs[part.Type].health
 			if part.Health < maxHealth {
 				part.Health = clamp(part.Health+repairRate*dt, 0, maxHealth)
