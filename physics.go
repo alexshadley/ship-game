@@ -178,14 +178,16 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		}
 	}
 
-	// The astronaut takes impact damage from hard knocks against asteroids and
-	// ships while out on a spacewalk; the solver still handles the bounce.
-	playerAsteroid := space.NewCollisionHandler(collisionPlayer, collisionAsteroid)
-	playerAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
-		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
-	}
+	// The astronaut only takes impact damage from hard knocks against enemy
+	// ships while out on a spacewalk; bumping its own hull or an asteroid is
+	// harmless. The solver still handles the bounce in every case.
 	playerShipHandler := space.NewCollisionHandler(collisionPlayer, collisionShip)
 	playerShipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
+		_, shipShape := arb.Shapes()
+		sb := p.shipBodyFor(shipShape.Body())
+		if sb == nil || sb.ship == p.playerShip {
+			return
+		}
 		p.damagePlayer(arb.TotalImpulse().Length() * playerDamagePerImpulse)
 	}
 
