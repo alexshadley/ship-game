@@ -110,6 +110,9 @@ type Part struct {
 	Facing Facing
 	Health float32
 	Weight float32
+	// FireCooldown is the per-cannon countdown to its next shot, so each cannon
+	// fires on its own cadence regardless of the ship's other cannons.
+	FireCooldown float32
 }
 
 type partSpec struct {
@@ -123,7 +126,7 @@ type partSpec struct {
 const partWeight float32 = 2.0
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 100, weight: partWeight, color: rl.SkyBlue},
+	PartCockpit: {health: 25, weight: partWeight, color: rl.SkyBlue},
 	PartBlock:   {health: 50, weight: partWeight, color: rl.Gray},
 	PartEngine:  {health: 50, weight: partWeight, color: rl.Orange},
 
