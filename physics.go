@@ -41,6 +41,7 @@ const (
 const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
+	collisionPlayer   cp.CollisionType = 3
 )
 
 // Physics owns the Chipmunk space and the ship's rigid body, and keeps the
@@ -57,6 +58,52 @@ type Physics struct {
 
 	engines   int // number of PartEngine parts (forward thrust)
 	thrusters int // number of PartControlThruster parts (turning)
+
+	// player, playerBody and playerShape exist only during a spacewalk: the
+	// astronaut's simulated body, added to the space by AttachPlayer and removed
+	// by DetachPlayer. All are nil while the pilot is aboard.
+	player      *Player
+	playerBody  *cp.Body
+	playerShape *cp.Shape
+}
+
+// AttachPlayer adds a body for the spacewalking astronaut to the space at its
+// current position and velocity, so it collides with the ship and asteroids. It
+// carries its own collision type with no registered handler, so those collisions
+// resolve as pure physical bounces and deal no damage to anything.
+func (p *Physics) AttachPlayer(pl *Player) {
+	moment := cp.MomentForCircle(playerMass, 0, playerRadius, cp.Vector{})
+	body := cp.NewBody(playerMass, moment)
+	body.SetPosition(cp.Vector{X: float64(pl.Position.X), Y: float64(pl.Position.Y)})
+	body.SetVelocityVector(cp.Vector{X: float64(pl.Velocity.X), Y: float64(pl.Velocity.Y)})
+	// Custom velocity update applies the astronaut's own gentle drag instead of the
+	// space's default ship damping, preserving the light spacewalk drift.
+	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
+		b.UpdateVelocity(gravity, math.Pow(playerDamping, dt), dt)
+	})
+	p.space.AddBody(body)
+
+	shape := p.space.AddShape(cp.NewCircle(body, playerRadius, cp.Vector{}))
+	shape.SetCollisionType(collisionPlayer)
+	shape.SetElasticity(playerElasticity)
+	shape.SetFriction(0.4)
+
+	p.player = pl
+	p.playerBody = body
+	p.playerShape = shape
+}
+
+// DetachPlayer removes the astronaut's body from the space (on re-entry). It is a
+// no-op if no spacewalk is in progress.
+func (p *Physics) DetachPlayer() {
+	if p.playerBody == nil {
+		return
+	}
+	p.space.RemoveShape(p.playerShape)
+	p.space.RemoveBody(p.playerBody)
+	p.player = nil
+	p.playerBody = nil
+	p.playerShape = nil
 }
 
 // NewPhysics builds a space and a single rigid body for the ship. The body's
@@ -159,12 +206,15 @@ func NewPhysics(ship *Ship, asteroids []*Asteroid) *Physics {
 	return p
 }
 
-// Update reads thrust input, steps the simulation by dt seconds, and writes the
-// resulting motion back onto the ship.
+// Update steps the simulation by dt seconds and writes the resulting motion back
+// onto the ship. When piloting is true it also reads thrust input; while the
+// pilot is spacewalking (piloting false) the ship takes no control input and
+// simply coasts, though the simulation keeps running so it and the asteroids
+// still drift and collide.
 //
 //	W     - fire all engines: forward thrust along the ship's heading.
 //	A / D - fire the control thrusters: turn left / right.
-func (p *Physics) Update(dt float64) {
+func (p *Physics) Update(dt float64, piloting bool) {
 	// GetFrameTime reports 0 on the first frame and can spike after a stall; clamp
 	// to a sane range so the integrator never divides by zero or takes a huge step.
 	if dt <= 0 {
@@ -177,21 +227,33 @@ func (p *Physics) Update(dt float64) {
 	// Rebuild the force/torque accumulators from scratch each frame so releasing
 	// a key immediately stops that input.
 	force := cp.Vector{}
-	if rl.IsKeyDown(rl.KeyW) {
-		// Forward is -Y in the ship's local frame (toward the nose/cockpit).
+	if piloting && rl.IsKeyDown(rl.KeyW) {
+		// Forward is -Y in the ship's local frame (toward the nose).
 		local := cp.Vector{X: 0, Y: -engineThrust * float64(p.engines)}
 		force = p.body.Rotation().Rotate(local)
 	}
 	p.body.SetForce(force)
 
 	var torque float64
-	if rl.IsKeyDown(rl.KeyA) {
-		torque -= thrusterTorque * float64(p.thrusters)
-	}
-	if rl.IsKeyDown(rl.KeyD) {
-		torque += thrusterTorque * float64(p.thrusters)
+	if piloting {
+		if rl.IsKeyDown(rl.KeyA) {
+			torque -= thrusterTorque * float64(p.thrusters)
+		}
+		if rl.IsKeyDown(rl.KeyD) {
+			torque += thrusterTorque * float64(p.thrusters)
+		}
 	}
 	p.body.SetTorque(torque)
+
+	// Drive the spacewalking astronaut with WASD, as a force scaled by its mass so
+	// the acceleration matches playerThrust regardless of mass.
+	if p.playerBody != nil {
+		dx, dy := walkInputDir()
+		p.playerBody.SetForce(cp.Vector{
+			X: dx * playerMass * playerThrust,
+			Y: dy * playerMass * playerThrust,
+		})
+	}
 
 	p.space.Step(dt)
 
@@ -207,5 +269,13 @@ func (p *Physics) Update(dt float64) {
 		avel := p.asteroidBodies[i].Velocity()
 		a.Position = rl.NewVector2(float32(apos.X), float32(apos.Y))
 		a.Velocity = rl.NewVector2(float32(avel.X), float32(avel.Y))
+	}
+
+	// Sync the astronaut's simulated motion back for rendering and re-entry checks.
+	if p.playerBody != nil && p.player != nil {
+		ppos := p.playerBody.Position()
+		pvel := p.playerBody.Velocity()
+		p.player.Position = rl.NewVector2(float32(ppos.X), float32(ppos.Y))
+		p.player.Velocity = rl.NewVector2(float32(pvel.X), float32(pvel.Y))
 	}
 }

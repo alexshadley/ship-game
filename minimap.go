@@ -23,9 +23,12 @@ const (
 // heading; each asteroid is drawn at its position relative to the ship. Objects
 // beyond the minimap's range are clipped out.
 //
+// When player is non-nil (a spacewalk is in progress) it is drawn as an orange
+// blip relative to the ship so the pilot can see where they drifted.
+//
 // Call this in screen (texture) space — outside BeginMode2D — so it stays fixed
 // as an overlay rather than moving with the camera.
-func DrawMinimap(ship *Ship, asteroids []*Asteroid) {
+func DrawMinimap(ship *Ship, asteroids []*Asteroid, player *Player) {
 	center := rl.NewVector2(
 		gameWidth-minimapRadius-minimapMargin,
 		gameHeight-minimapRadius-minimapMargin,
@@ -56,6 +59,17 @@ func DrawMinimap(ship *Ship, asteroids []*Asteroid) {
 
 	// Player ship: a small triangle at the center pointing along its heading.
 	drawMinimapShip(center, ship.Direction)
+
+	// Spacewalking astronaut, relative to the ship.
+	if player != nil {
+		blip := rl.NewVector2(
+			center.X+(player.Position.X-ship.Position.X)*minimapScale,
+			center.Y+(player.Position.Y-ship.Position.Y)*minimapScale,
+		)
+		if dist(blip, center) <= minimapRadius {
+			rl.DrawCircleV(blip, 2, rl.Orange)
+		}
+	}
 }
 
 // drawMinimapShip draws the ship marker: a triangle pointing in the ship's
