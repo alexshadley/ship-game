@@ -127,17 +127,19 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	s := NewShip(pos)
 	s.AddPart(GridCoord{X: 0, Y: 0}, NewPart(PartCockpit, FacingUp))
 	s.AddPart(GridCoord{X: 0, Y: -1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartBlock, FacingUp))
 	s.AddPart(GridCoord{X: 0, Y: -2}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartBlock, FacingUp))
 	// Engines flank the rear; the cell directly behind the cockpit ({0,1}) is left
 	// empty so the pilot can climb out to spacewalk.
 	s.AddPart(GridCoord{X: -1, Y: 1}, NewPart(PartEngine, FacingDown))
 	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartEngine, FacingDown))
 	s.AddPart(GridCoord{X: -2, Y: 0}, NewPart(PartControlThruster, FacingRight))
 	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
-	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartCannon, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartCannon, FacingUp))
+	// Cannons sit at the front flanks with a clear line of fire; the cells directly
+	// ahead of them are empty rather than walled off by the nose blocks.
+	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartCannon, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartCannon, FacingUp))
 	return s
 }
 
