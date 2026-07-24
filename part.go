@@ -119,7 +119,7 @@ type partSpec struct {
 }
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 100, weight: 3.0, color: rl.SkyBlue},
+	PartCockpit: {health: 25, weight: 3.0, color: rl.SkyBlue},
 	PartBlock:   {health: 50, weight: 2.0, color: rl.Gray},
 	PartEngine:  {health: 50, weight: 2.5, color: rl.Orange},
 
