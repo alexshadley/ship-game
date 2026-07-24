@@ -49,6 +49,35 @@ func (s *Ship) Mass() float32 {
 	return total
 }
 
+// CenterOfMass returns the ship's weight-weighted centroid in local (cell-pixel)
+// coordinates — the same frame drawPart positions parts in, so worldPoint maps it
+// to screen space. Returns the cockpit origin when the ship has no mass.
+func (s *Ship) CenterOfMass() rl.Vector2 {
+	return centerOfMass(s.Parts, nil, GridCoord{})
+}
+
+// centerOfMass computes the weight-weighted centroid of parts in local pixel
+// coordinates. When extra is non-nil it's folded in at coord, letting callers
+// preview where the center of mass would move if that part were attached there.
+func centerOfMass(parts map[GridCoord]*Part, extra *Part, coord GridCoord) rl.Vector2 {
+	var mass, mx, my float32
+	add := func(c GridCoord, p *Part) {
+		mass += p.Weight
+		mx += p.Weight * float32(c.X) * cellSize
+		my += p.Weight * float32(c.Y) * cellSize
+	}
+	for c, p := range parts {
+		add(c, p)
+	}
+	if extra != nil {
+		add(coord, extra)
+	}
+	if mass == 0 {
+		return rl.Vector2{}
+	}
+	return rl.NewVector2(mx/mass, my/mass)
+}
+
 // Validate enforces the ship's structural rules: exactly one cockpit, every part
 // connected to it, and every control thruster attached on exactly one side facing
 // that attachment.
@@ -356,6 +385,126 @@ func clamp01(v float32) float32 {
 		return 1
 	}
 	return v
+}
+
+// engineThrustLine is the line of action of a ship's combined engine thrust, in
+// local (cell-pixel) coordinates: a point the line passes through, the unit push
+// direction, and the perpendicular distance (offset) from the reference point to
+// the line. ok is false when the ship has no net engine force (no line to draw).
+type engineThrustLine struct {
+	point  rl.Vector2
+	dir    rl.Vector2
+	offset float32
+	ok     bool
+}
+
+// engineForceTorqueAbout sums the ship's engine thrust (engineThrust per engine)
+// into a net force and the torque it exerts about ref, in local (cell-pixel)
+// coordinates. extra, if non-nil, is folded in at coord. This is the shared core
+// of both the physics straight-flight test (Physics.Update) and the HUD thrust-
+// line overlay, so the sim and the on-screen readout can never disagree about
+// where thrust pushes or whether it's balanced.
+func engineForceTorqueAbout(parts map[GridCoord]*Part, extra *Part, coord GridCoord, ref rl.Vector2) (force rl.Vector2, torque float32) {
+	add := func(c GridCoord, p *Part) {
+		if p.Type != PartEngine {
+			return
+		}
+		off := p.Facing.offset()
+		lfx, lfy := float32(-off.X)*engineThrust, float32(-off.Y)*engineThrust
+		force.X += lfx
+		force.Y += lfy
+		rx := float32(c.X)*cellSize - ref.X
+		ry := float32(c.Y)*cellSize - ref.Y
+		torque += rx*lfy - ry*lfx
+	}
+	for c, p := range parts {
+		add(c, p)
+	}
+	if extra != nil {
+		add(coord, extra)
+	}
+	return force, torque
+}
+
+// engineThrustAbout builds the combined engine thrust line for parts (optionally
+// folding in extra at coord), taking torque about ref. Its offset — the
+// perpendicular distance from ref to the line — is the same quantity
+// Physics.Update compares against engineStraightTolerance to decide whether the
+// engines drive the ship straight, so a caller passing the center of mass as ref
+// gets an on-screen readout of that balance test.
+func engineThrustAbout(parts map[GridCoord]*Part, extra *Part, coord GridCoord, ref rl.Vector2) engineThrustLine {
+	force, torque := engineForceTorqueAbout(parts, extra, coord, ref)
+	mag := float32(math.Hypot(float64(force.X), float64(force.Y)))
+	if mag == 0 {
+		return engineThrustLine{}
+	}
+	// Foot of the perpendicular from ref onto the line of action: ref + τ·(Fy,-Fx)/|F|².
+	return engineThrustLine{
+		point:  rl.NewVector2(ref.X+torque*force.Y/(mag*mag), ref.Y-torque*force.X/(mag*mag)),
+		dir:    rl.NewVector2(force.X/mag, force.Y/mag),
+		offset: float32(math.Abs(float64(torque))) / mag,
+		ok:     true,
+	}
+}
+
+// thrustLineHalfLength returns how far to extend the thrust line each way from
+// point so it spans the whole ship (plus a cell of margin) rather than reading as
+// a stub near the center of mass.
+func thrustLineHalfLength(parts map[GridCoord]*Part, extra *Part, coord GridCoord, point rl.Vector2) float32 {
+	max := float32(cellSize)
+	consider := func(c GridCoord) {
+		dx := float32(c.X)*cellSize - point.X
+		dy := float32(c.Y)*cellSize - point.Y
+		if d := float32(math.Hypot(float64(dx), float64(dy))); d > max {
+			max = d
+		}
+	}
+	for c := range parts {
+		consider(c)
+	}
+	if extra != nil {
+		consider(coord)
+	}
+	return max + cellSize
+}
+
+// drawThrustLine draws tl across the ship as an arrow pointing the way the engines
+// push. The line and its arrowhead are rotated into world space through the ship's
+// frame so it tracks the hull's heading.
+func drawThrustLine(ship *Ship, tl engineThrustLine, half float32, col rl.Color) {
+	a := ship.worldPoint(tl.point.X-tl.dir.X*half, tl.point.Y-tl.dir.Y*half)
+	b := ship.worldPoint(tl.point.X+tl.dir.X*half, tl.point.Y+tl.dir.Y*half)
+	rl.DrawLineEx(a, b, 2, col)
+
+	// Arrowhead at the push (+dir) end. Two short strokes avoid triangle back-face
+	// culling regardless of the ship's orientation.
+	wd := ship.worldVec(tl.dir.X, tl.dir.Y)
+	px, py := -wd.Y, wd.X
+	const h = cellSize * 0.4
+	base := rl.NewVector2(b.X-wd.X*h, b.Y-wd.Y*h)
+	rl.DrawLineEx(b, rl.NewVector2(base.X+px*h*0.6, base.Y+py*h*0.6), 2, col)
+	rl.DrawLineEx(b, rl.NewVector2(base.X-px*h*0.6, base.Y-py*h*0.6), 2, col)
+}
+
+// drawCenterOfMassMarker draws the classic balance-point glyph — a ring with two
+// opposite quadrants filled — centered at the given world point. It stays screen-
+// aligned (the symbol is rotationally symmetric, so orientation doesn't matter).
+func drawCenterOfMassMarker(center rl.Vector2, color rl.Color) {
+	const r = cellSize * 0.3
+	rl.DrawCircleV(center, r, rl.NewColor(255, 255, 255, 200))
+	rl.DrawCircleSector(center, r, 0, 90, 12, color)
+	rl.DrawCircleSector(center, r, 180, 270, 12, color)
+	rl.DrawCircleLines(int32(center.X), int32(center.Y), r, color)
+}
+
+// drawCenterOfMassGhost marks a faint, hollow crosshair where the center of mass
+// currently sits, so a placement preview can show how far the balance point moves.
+func drawCenterOfMassGhost(center rl.Vector2) {
+	const r = cellSize * 0.22
+	col := rl.NewColor(90, 90, 90, 170)
+	rl.DrawCircleLines(int32(center.X), int32(center.Y), r, col)
+	rl.DrawLineEx(rl.NewVector2(center.X-r, center.Y), rl.NewVector2(center.X+r, center.Y), 1, col)
+	rl.DrawLineEx(rl.NewVector2(center.X, center.Y-r), rl.NewVector2(center.X, center.Y+r), 1, col)
 }
 
 func drawCell(center rl.Vector2, size, rotDeg float32, color rl.Color) {

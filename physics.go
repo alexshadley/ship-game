@@ -223,19 +223,29 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 	return false
 }
 
-// AddShip builds a rigid body for ship and registers controller as the source of
-// its Controls. The body's center of gravity is the cockpit origin, so the sim
-// rotates the ship about the same point the renderer does.
-func (p *Physics) AddShip(ship *Ship, controller Controller) {
-	var mass, moment float64
-	var engines, thrusters int
-	for c, part := range ship.Parts {
-		m := float64(part.Weight)
-		x := float64(c.X) * cellSize
-		y := float64(c.Y) * cellSize
-		mass += m
-		moment += cp.MomentForBox(m, cellSize, cellSize) + m*(x*x+y*y)
+// addShipShape builds the collision box for part at grid cell c on body, giving it
+// the part's weight as mass so the body's center of gravity, mass, and moment can
+// be derived from its shapes (see AccumulateMassFromShapes). Shared by AddShip and
+// AttachPart.
+func (p *Physics) addShipShape(body *cp.Body, c GridCoord, part *Part) *cp.Shape {
+	center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
+	shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
+	shape.SetCollisionType(collisionShip)
+	shape.SetElasticity(shipElasticity)
+	shape.SetFriction(0.4)
+	shape.SetMass(float64(part.Weight))
+	shape.UserData = part
+	return shape
+}
 
+// AddShip builds a rigid body for ship and registers controller as the source of
+// its Controls. Mass lives on the per-part shapes, so AccumulateMassFromShapes
+// sets the body's center of gravity to the weight-weighted centroid — the sim
+// rotates the ship about its true balance point, matching the HUD marker. The
+// body's local origin stays the cockpit cell, so the renderer maps straight across.
+func (p *Physics) AddShip(ship *Ship, controller Controller) {
+	var engines, thrusters int
+	for _, part := range ship.Parts {
 		switch part.Type {
 		case PartEngine:
 			engines++
@@ -244,21 +254,16 @@ func (p *Physics) AddShip(ship *Ship, controller Controller) {
 		}
 	}
 
-	body := cp.NewBody(mass, moment)
-	body.SetPosition(cp.Vector{X: float64(ship.Position.X), Y: float64(ship.Position.Y)})
+	body := cp.NewBody(1, 1) // mass, moment, and cog are derived from the shapes below
 	body.SetAngle(float64(ship.Direction))
+	body.SetPosition(cp.Vector{X: float64(ship.Position.X), Y: float64(ship.Position.Y)})
 	p.space.AddBody(body)
 
 	shipShapes := make(map[*Part]*cp.Shape, len(ship.Parts))
 	for c, part := range ship.Parts {
-		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
-		shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
-		shape.SetCollisionType(collisionShip)
-		shape.SetElasticity(shipElasticity)
-		shape.SetFriction(0.4)
-		shape.UserData = part
-		shipShapes[part] = shape
+		shipShapes[part] = p.addShipShape(body, c, part)
 	}
+	body.AccumulateMassFromShapes()
 
 	p.ships = append(p.ships, &shipBody{
 		ship:       ship,
@@ -292,26 +297,14 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		// and torque accumulate here (both are zeroed by the integrator each step) and
 		// the turn torque is added on top of whatever the engines contributed.
 		if controls.Thrust != 0 {
-			// The net effect of the engines on the rigid body is fully described by
-			// their combined force and their combined torque about the center of
-			// mass, so accumulate both in local space rather than applying each
-			// force at its own cell.
+			// The net effect of the engines is fully described by their combined force
+			// and the torque it exerts about the center of gravity. engineForceTorqueAbout
+			// (shared with the HUD thrust-line overlay) computes both about the body's
+			// cog — the true centroid — in engineThrust units; scale by the throttle.
 			cog := sb.body.CenterOfGravity()
-			var netForce cp.Vector
-			var netTorque float64
-			for c, part := range sb.ship.Parts {
-				if part.Type != PartEngine {
-					continue
-				}
-				off := part.Facing.offset()
-				local := cp.Vector{
-					X: float64(-off.X) * engineThrust * float64(controls.Thrust),
-					Y: float64(-off.Y) * engineThrust * float64(controls.Thrust),
-				}
-				netForce = netForce.Add(local)
-				r := cp.Vector{X: float64(c.X)*cellSize - cog.X, Y: float64(c.Y)*cellSize - cog.Y}
-				netTorque += r.Cross(local)
-			}
+			force, torque := engineForceTorqueAbout(sb.ship.Parts, nil, GridCoord{}, rl.NewVector2(float32(cog.X), float32(cog.Y)))
+			netForce := cp.Vector{X: float64(force.X) * float64(controls.Thrust), Y: float64(force.Y) * float64(controls.Thrust)}
+			netTorque := float64(torque) * float64(controls.Thrust)
 			// If the combined thrust line passes close enough to the center of mass,
 			// treat it as straight and drop the residual torque so a nearly symmetric
 			// layout doesn't slowly spin. A near-zero net force means the engines
@@ -344,6 +337,9 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	var projectiles []*Projectile
 	survivors := p.ships[:0]
 	for _, sb := range p.ships {
+		// Position() reports the world location of the body's local origin (the
+		// cockpit cell), independent of where the center of gravity sits, so the
+		// renderer's cockpit-origin frame maps straight across.
 		pos := sb.body.Position()
 		vel := sb.body.Velocity()
 		sb.ship.Position = rl.NewVector2(float32(pos.X), float32(pos.Y))
@@ -571,13 +567,7 @@ func (p *Physics) AttachPart(ship *Ship, c GridCoord, part *Part) {
 			continue
 		}
 		sb.ship.Parts[c] = part
-		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
-		shape := p.space.AddShape(cp.NewBox2(sb.body, cp.NewBBForExtents(center, cellSize/2, cellSize/2), 0))
-		shape.SetCollisionType(collisionShip)
-		shape.SetElasticity(shipElasticity)
-		shape.SetFriction(0.4)
-		shape.UserData = part
-		sb.shipShapes[part] = shape
+		sb.shipShapes[part] = p.addShipShape(sb.body, c, part)
 		p.recomputeShipBody(sb)
 		return
 	}
@@ -607,15 +597,13 @@ func (p *Physics) destroyShip(sb *shipBody) {
 	sb.thrusters = 0
 }
 
+// recomputeShipBody rebuilds the body's mass, moment, and center of gravity from
+// its current shapes after parts are added or lost, and refreshes the cached
+// engine/thruster counts. AccumulateMassFromShapes re-derives the centroid and
+// keeps the cockpit-origin cell pinned in the world, so the hull doesn't jump.
 func (p *Physics) recomputeShipBody(sb *shipBody) {
-	var mass, moment float64
 	var engines, thrusters int
-	for c, part := range sb.ship.Parts {
-		m := float64(part.Weight)
-		x := float64(c.X) * cellSize
-		y := float64(c.Y) * cellSize
-		mass += m
-		moment += cp.MomentForBox(m, cellSize, cellSize) + m*(x*x+y*y)
+	for _, part := range sb.ship.Parts {
 		switch part.Type {
 		case PartEngine:
 			engines++
@@ -623,9 +611,8 @@ func (p *Physics) recomputeShipBody(sb *shipBody) {
 			thrusters++
 		}
 	}
-	if mass > 0 {
-		sb.body.SetMass(mass)
-		sb.body.SetMoment(moment)
+	if len(sb.shipShapes) > 0 {
+		sb.body.AccumulateMassFromShapes()
 	}
 	sb.engines = engines
 	sb.thrusters = thrusters

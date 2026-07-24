@@ -118,14 +118,18 @@ type partSpec struct {
 	color  rl.Color
 }
 
-var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 100, weight: 3.0, color: rl.SkyBlue},
-	PartBlock:   {health: 50, weight: 2.0, color: rl.Gray},
-	PartEngine:  {health: 50, weight: 2.5, color: rl.Orange},
+// partWeight is the mass of every part. All parts weigh the same, so a ship's
+// center of mass is just the centroid of its occupied cells.
+const partWeight float32 = 2.0
 
-	PartControlThruster: {health: 50, weight: 1.5, color: rl.Purple},
-	PartCannon:          {health: 20, weight: 2.0, color: rl.DarkGreen},
-	PartWeakCannon:      {health: 20, weight: 2.0, color: rl.DarkBrown},
+var partSpecs = map[PartType]partSpec{
+	PartCockpit: {health: 100, weight: partWeight, color: rl.SkyBlue},
+	PartBlock:   {health: 50, weight: partWeight, color: rl.Gray},
+	PartEngine:  {health: 50, weight: partWeight, color: rl.Orange},
+
+	PartControlThruster: {health: 50, weight: partWeight, color: rl.Purple},
+	PartCannon:          {health: 20, weight: partWeight, color: rl.DarkGreen},
+	PartWeakCannon:      {health: 20, weight: partWeight, color: rl.DarkBrown},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

@@ -113,9 +113,24 @@ func (sc *Scavenger) DropHeld(physics *Physics, player *Player) {
 	sc.Held = nil
 }
 
+// comNeutralColor marks the center of mass when there are no engines to balance;
+// balancedColor / unbalancedColor mark the center of mass and the engine thrust
+// line green when the thrust passes close enough to the center of mass to fly
+// straight (within engineStraightTolerance) and red when it doesn't.
+var (
+	comNeutralColor = rl.NewColor(60, 60, 60, 255)
+	balancedColor   = rl.NewColor(0, 180, 70, 255)
+	unbalancedColor = rl.NewColor(220, 50, 40, 255)
+)
+
 // Draw renders the held part as a ghost preview at its resolved placement: normal
 // color when it's free or snapped to a valid cell, red when snapped to an invalid
-// one. It draws nothing when no part is held.
+// one. While a part is held it also draws the ship's center of mass and engine
+// thrust line, colored green when the thrust is balanced through the center of
+// mass and red otherwise. When snapped to a valid cell it evaluates the ship as it
+// *would* be with the part attached (and ghosts the current balance point so the
+// shift is visible), letting the pilot judge the spot before releasing. It draws
+// nothing when no part is held.
 func (sc *Scavenger) Draw(ship *Ship) {
 	if sc.Held == nil {
 		return
@@ -125,4 +140,34 @@ func (sc *Scavenger) Draw(ship *Ship) {
 		fill = rl.Red
 	}
 	drawPartColored(sc.pos, sc.baseAngle, sc.Held, fill)
+
+	// Evaluate the previewed configuration when snapped to a valid cell, otherwise
+	// the ship as it stands.
+	var extra *Part
+	var coord GridCoord
+	if sc.snapped && sc.valid {
+		extra = sc.Held
+		coord = sc.snapCoord
+	}
+
+	com := centerOfMass(ship.Parts, extra, coord)
+	tl := engineThrustAbout(ship.Parts, extra, coord, com)
+
+	col := comNeutralColor
+	if tl.ok {
+		if tl.offset <= engineStraightTolerance {
+			col = balancedColor
+		} else {
+			col = unbalancedColor
+		}
+		half := thrustLineHalfLength(ship.Parts, extra, coord, tl.point)
+		drawThrustLine(ship, tl, half, col)
+	}
+
+	// Ghost the current center of mass while previewing so the shift is visible.
+	if extra != nil {
+		cur := ship.CenterOfMass()
+		drawCenterOfMassGhost(ship.worldPoint(cur.X, cur.Y))
+	}
+	drawCenterOfMassMarker(ship.worldPoint(com.X, com.Y), col)
 }
