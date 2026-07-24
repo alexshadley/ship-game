@@ -126,6 +126,9 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// Wing-tip control thrusters, each attached on its inboard side only.
 	s.AddPart(GridCoord{X: -2, Y: 1}, NewPart(PartControlThruster, FacingRight))
 	s.AddPart(GridCoord{X: 2, Y: 1}, NewPart(PartControlThruster, FacingLeft))
+	// Forward-firing cannons flanking the cockpit.
+	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartCannon, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartCannon, FacingUp))
 	return s
 }
 
@@ -160,6 +163,8 @@ func (s *Ship) Draw() {
 			s.drawFacingIndicator(c, p.Facing, rl.Red)
 		case PartControlThruster:
 			s.drawControlThrusterNozzles(c, p.Facing)
+		case PartCannon:
+			s.drawFacingIndicator(c, p.Facing, rl.Black)
 		}
 
 		// A damaged part shows a small health bar above its cell.
