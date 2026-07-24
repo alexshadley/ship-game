@@ -25,6 +25,7 @@ func main() {
 		log.Printf("default ship is invalid: %v", err)
 	}
 
+	asteroids := DefaultAsteroids()
 	physics := NewPhysics(ship)
 
 	for !rl.WindowShouldClose() {
@@ -32,6 +33,9 @@ func main() {
 
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RayWhite)
+		for _, a := range asteroids {
+			a.Draw()
+		}
 		ship.Draw()
 		rl.EndDrawing()
 	}
