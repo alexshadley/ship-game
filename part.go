@@ -6,22 +6,15 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-// PartType identifies a category of ship part.
 type PartType int
 
 const (
-	// PartCockpit is the command module. A ship has exactly one, at grid {0,0}.
 	PartCockpit PartType = iota
-	// PartBlock is a standard structural component.
 	PartBlock
-	// PartEngine produces forward thrust.
 	PartEngine
-	// PartControlThruster is a maneuvering thruster that fires to either side.
-	// It attaches to the ship on exactly one side; its Facing points toward that
-	// attached side, and it thrusts along the perpendicular axis.
+	// PartControlThruster attaches on exactly one side; its Facing points toward
+	// that attached side, and it thrusts along the perpendicular axis.
 	PartControlThruster
-	// PartCannon fires projectiles in its Facing direction while the player holds
-	// Shift.
 	PartCannon
 )
 
@@ -42,8 +35,6 @@ func (t PartType) String() string {
 	}
 }
 
-// Facing is the direction a part points. It is irrelevant for some part types
-// (e.g. blocks), which conventionally use FacingUp.
 type Facing int
 
 const (
@@ -53,8 +44,6 @@ const (
 	FacingLeft
 )
 
-// angle returns the facing's rotation in radians, with Up at 0 and angles
-// increasing clockwise to match screen space (+X right, +Y down).
 func (f Facing) angle() float32 {
 	switch f {
 	case FacingRight:
@@ -63,7 +52,7 @@ func (f Facing) angle() float32 {
 		return math.Pi
 	case FacingLeft:
 		return 3 * math.Pi / 2
-	default: // FacingUp
+	default:
 		return 0
 	}
 }
@@ -83,7 +72,6 @@ func (f Facing) String() string {
 	}
 }
 
-// offset returns the unit grid step in the direction of f.
 func (f Facing) offset() GridCoord {
 	switch f {
 	case FacingUp:
@@ -99,13 +87,10 @@ func (f Facing) offset() GridCoord {
 	}
 }
 
-// GridCoord is an integer position on a ship's part grid. The cockpit sits at
-// {0,0}; +X is right and +Y is toward the rear of the ship.
 type GridCoord struct {
 	X, Y int
 }
 
-// neighbors returns the four orthogonally adjacent coordinates.
 func (c GridCoord) neighbors() [4]GridCoord {
 	return [4]GridCoord{
 		{c.X, c.Y - 1},
@@ -115,7 +100,6 @@ func (c GridCoord) neighbors() [4]GridCoord {
 	}
 }
 
-// Part is a single 1x1 cube component of a ship.
 type Part struct {
 	Type   PartType
 	Facing Facing
@@ -123,7 +107,6 @@ type Part struct {
 	Weight float32
 }
 
-// partSpec holds the default attributes and rendering color for a part type.
 type partSpec struct {
 	health float32
 	weight float32
@@ -131,15 +114,14 @@ type partSpec struct {
 }
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 150, weight: 3.0, color: rl.SkyBlue},
-	PartBlock:   {health: 100, weight: 2.0, color: rl.Gray},
-	PartEngine:  {health: 80, weight: 2.5, color: rl.Orange},
+	PartCockpit: {health: 100, weight: 3.0, color: rl.SkyBlue},
+	PartBlock:   {health: 50, weight: 2.0, color: rl.Gray},
+	PartEngine:  {health: 50, weight: 2.5, color: rl.Orange},
 
-	PartControlThruster: {health: 60, weight: 1.5, color: rl.Purple},
-	PartCannon:          {health: 70, weight: 2.0, color: rl.DarkGreen},
+	PartControlThruster: {health: 50, weight: 1.5, color: rl.Purple},
+	PartCannon:          {health: 20, weight: 2.0, color: rl.DarkGreen},
 }
 
-// NewPart builds a part of the given type and facing with default health/weight.
 func NewPart(t PartType, facing Facing) *Part {
 	spec := partSpecs[t]
 	return &Part{

@@ -15,6 +15,14 @@ A 2D space ship game written in Go.
 All source is flat in the repo root, `package main`: `main.go` (window + game loop),
 `ship.go`, `part.go`, `physics.go`, `asteroid.go`, `projectile.go`.
 
+## Working here
+
+- **Tests:** Don't write tests unless asked.
+- **Comments:** Don't write comments unless asked. Keep comments miserly — write one
+  only when the code does something counterintuitive or unexpected (a sign flip, a
+  library quirk, a constraint, something that would otherwise read like a bug). Never
+  comment what the code plainly says.
+
 ## Conventions
 
 ### Coordinates are centers
