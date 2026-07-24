@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	engineThrust   = 1500.0
+	engineThrust   = 3000.0
 	thrusterTorque = 90000.0
-	// spaceDamping is the fraction of velocity that survives each second. Below 1
-	// the ship always coasts to a stop when unpowered.
+	// spaceDamping is the fraction of velocity that survives each second; it applies
+	// to every body, so anything unpowered coasts to a stop.
 	spaceDamping = 0.55
 
 	shipElasticity     = 0.4
@@ -20,7 +20,7 @@ const (
 	asteroidDensity = 0.02
 
 	damagePerImpulse = 0.05
-	projectileDamage = 20.0
+	projectileDamage = 5.0
 )
 
 const (
@@ -104,10 +104,6 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		ab := cp.NewBody(m, cp.MomentForCircle(m, 0, r, cp.Vector{}))
 		ab.SetPosition(cp.Vector{X: float64(a.Position.X), Y: float64(a.Position.Y)})
 		ab.SetVelocityVector(cp.Vector{X: float64(a.Velocity.X), Y: float64(a.Velocity.Y)})
-		// Cancel the global damping (multiplier 1.0) so rocks coast forever.
-		ab.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
-			b.UpdateVelocity(gravity, 1.0, dt)
-		})
 		space.AddBody(ab)
 
 		shape := space.AddShape(cp.NewCircle(ab, r, cp.Vector{}))
@@ -411,10 +407,6 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	body.SetAngle(float64(sb.ship.Direction))
 	body.SetVelocityVector(vel)
 	body.SetAngularVelocity(w)
-	// Cancel global damping (multiplier 1.0) so debris coasts like the asteroids.
-	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
-		b.UpdateVelocity(gravity, 1.0, dt)
-	})
 	p.space.AddBody(body)
 
 	shape := p.space.AddShape(cp.NewBox2(body, cp.NewBBForExtents(cp.Vector{}, cellSize/2, cellSize/2), 0))

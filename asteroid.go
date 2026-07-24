@@ -1,6 +1,8 @@
 package main
 
 import (
+	"math/rand"
+
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
@@ -29,11 +31,38 @@ func (a *Asteroid) Draw() {
 	rl.DrawCircleV(highlight, a.Size*0.6, rl.Gray)
 }
 
+const (
+	fieldRadius      = 3000
+	fieldCount       = 60
+	spawnClearRadius = 700
+
+	asteroidMinSize    = 15
+	asteroidMaxSize    = 70
+	asteroidHugeMin    = 150
+	asteroidHugeMax    = 400
+	asteroidHugeChance = 0.12
+)
+
 func DefaultAsteroids() []*Asteroid {
-	return []*Asteroid{
-		NewAsteroid(rl.NewVector2(120, 120), rl.NewVector2(15, 10), 40),
-		NewAsteroid(rl.NewVector2(650, 180), rl.NewVector2(-20, 25), 25),
-		NewAsteroid(rl.NewVector2(500, 450), rl.NewVector2(10, -18), 60),
-		NewAsteroid(rl.NewVector2(220, 480), rl.NewVector2(-12, -8), 18),
+	asteroids := make([]*Asteroid, 0, fieldCount)
+	for len(asteroids) < fieldCount {
+		pos := rl.NewVector2(
+			(rand.Float32()*2-1)*fieldRadius,
+			(rand.Float32()*2-1)*fieldRadius,
+		)
+		// Keep the ship's spawn (and the enemies near it) clear of rocks.
+		if pos.X*pos.X+pos.Y*pos.Y < spawnClearRadius*spawnClearRadius {
+			continue
+		}
+
+		var size float32
+		if rand.Float32() < asteroidHugeChance {
+			size = asteroidHugeMin + rand.Float32()*(asteroidHugeMax-asteroidHugeMin)
+		} else {
+			size = asteroidMinSize + rand.Float32()*(asteroidMaxSize-asteroidMinSize)
+		}
+
+		asteroids = append(asteroids, NewAsteroid(pos, rl.NewVector2(0, 0), size))
 	}
+	return asteroids
 }

@@ -114,12 +114,12 @@ type partSpec struct {
 }
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 150, weight: 3.0, color: rl.SkyBlue},
-	PartBlock:   {health: 100, weight: 2.0, color: rl.Gray},
-	PartEngine:  {health: 80, weight: 2.5, color: rl.Orange},
+	PartCockpit: {health: 100, weight: 3.0, color: rl.SkyBlue},
+	PartBlock:   {health: 50, weight: 2.0, color: rl.Gray},
+	PartEngine:  {health: 50, weight: 2.5, color: rl.Orange},
 
-	PartControlThruster: {health: 60, weight: 1.5, color: rl.Purple},
-	PartCannon:          {health: 70, weight: 2.0, color: rl.DarkGreen},
+	PartControlThruster: {health: 50, weight: 1.5, color: rl.Purple},
+	PartCannon:          {health: 20, weight: 2.0, color: rl.DarkGreen},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

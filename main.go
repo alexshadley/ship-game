@@ -14,7 +14,7 @@ const (
 	windowWidth  = 1920
 	windowHeight = 1080
 
-	pilotingZoom      = 0.5
+	pilotingZoom      = 0.25
 	spacewalkZoom     = 1.0
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
@@ -56,15 +56,29 @@ func main() {
 	spacewalking := false
 
 	physics.AddShip(ship, PilotInput{spacewalking: &spacewalking})
-	enemies, enemyAIs := DefaultEnemies(ship)
-	for i, e := range enemies {
-		physics.AddShip(e, enemyAIs[i])
+
+	// Enemies arrive from offscreen: one at the start, then another every
+	// enemySpawnInterval seconds.
+	var enemies []*Ship
+	spawnEnemy := func() {
+		e, ai := SpawnEnemy(ship)
+		physics.AddShip(e, ai)
+		enemies = append(enemies, e)
 	}
+	spawnEnemy()
+	enemySpawnTimer := float32(enemySpawnInterval)
 
 	var projectiles []*Projectile
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
+
+		// Periodically send in another enemy from beyond the edge of the view.
+		enemySpawnTimer -= dt
+		if enemySpawnTimer <= 0 {
+			spawnEnemy()
+			enemySpawnTimer = enemySpawnInterval
+		}
 
 		if spacewalking {
 			if player.NearCockpit(ship) && (rl.IsKeyPressed(rl.KeyLeftShift) || rl.IsKeyPressed(rl.KeyRightShift)) {

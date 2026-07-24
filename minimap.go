@@ -9,7 +9,7 @@ import (
 const (
 	minimapRadius = 46
 	minimapMargin = 8
-	minimapScale  = 0.04
+	minimapScale  = 0.02
 )
 
 // DrawMinimap must be called in screen (texture) space — outside BeginMode2D —
