@@ -138,17 +138,21 @@ func (s *Ship) connectedParts(cockpit GridCoord) map[GridCoord]bool {
 
 // DefaultShip builds a small, valid arrowhead-shaped ship centered at pos. The
 // cockpit sits at the rear with nothing directly behind it (grid {0,1} is left
-// open) so the pilot can pop out the back on a spacewalk; a wall of protective
-// blocks fills the nose in front of it, and the engines flank the open exit slot.
+// open) so the pilot can pop out the back on a spacewalk; a spine of protective
+// blocks shields the nose in front of it, the cannons sit out at the front
+// flanks with a clear line of fire, and the engines flank the open exit slot.
 func DefaultShip(pos rl.Vector2) *Ship {
 	s := NewShip(pos)
 	s.AddPart(GridCoord{X: 0, Y: 0}, NewPart(PartCockpit, FacingUp))
-	// Protective block wall in front of (ahead of, -Y) the cockpit, tapering to a
-	// nose tip so the cockpit is shielded from head-on impacts.
+	// Protective block spine in front of (ahead of, -Y) the cockpit, tapering to a
+	// nose tip so the cockpit is shielded from head-on impacts. The block wall
+	// stays on the centerline; the flanking front cells are left for the cannons.
 	s.AddPart(GridCoord{X: 0, Y: -1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartBlock, FacingUp))
 	s.AddPart(GridCoord{X: 0, Y: -2}, NewPart(PartBlock, FacingUp))
+	// Blocks flanking the cockpit that tie the wing thrusters and engines into the
+	// hull now that the cannons have moved forward.
+	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartBlock, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartBlock, FacingUp))
 	// Rear engines flanking the open exit slot at {0,1}; the cell directly behind
 	// the cockpit stays empty so the pilot can climb out.
 	s.AddPart(GridCoord{X: -1, Y: 1}, NewPart(PartEngine, FacingDown))
@@ -156,9 +160,10 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// Wing-tip control thrusters, each attached on its inboard side only.
 	s.AddPart(GridCoord{X: -2, Y: 0}, NewPart(PartControlThruster, FacingRight))
 	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
-	// Forward-firing cannons flanking the cockpit.
-	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartCannon, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartCannon, FacingUp))
+	// Forward-firing cannons out at the front flanks with a clear line of fire
+	// ahead of the hull — nothing sits directly in front of them.
+	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartCannon, FacingUp))
+	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartCannon, FacingUp))
 	return s
 }
 

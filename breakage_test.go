@@ -24,37 +24,49 @@ func addTestShip(ship *Ship) (*Physics, *shipBody) {
 	return phys, phys.ships[len(phys.ships)-1]
 }
 
-// TestBreakStrandsPart: destroying the block at {1,1} disconnects the wing-tip
-// control thruster at {2,1} (its only path to the cockpit ran through {1,1}), so
-// the block vanishes and the thruster becomes a loose part.
+// TestBreakStrandsPart: the block at {1,0} is the sole path to the cockpit for
+// both the right engine at {1,1} and the right wing-tip thruster at {2,0}.
+// Destroying it strands both, so the block vanishes and the two peripherals
+// become loose parts.
 func TestBreakStrandsPart(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
 	phys, sb := addTestShip(ship)
 
-	breakPart(t, ship, GridCoord{1, 1})
+	breakPart(t, ship, GridCoord{1, 0})
 	phys.handleBreakage(sb)
 
 	if ship.Destroyed {
 		t.Fatal("ship should survive losing a block")
 	}
-	if _, ok := ship.Parts[GridCoord{1, 1}]; ok {
+	if _, ok := ship.Parts[GridCoord{1, 0}]; ok {
 		t.Error("broken block should be removed from the grid")
 	}
-	if _, ok := ship.Parts[GridCoord{2, 1}]; ok {
+	if _, ok := ship.Parts[GridCoord{1, 1}]; ok {
+		t.Error("stranded engine should be removed from the grid")
+	}
+	if _, ok := ship.Parts[GridCoord{2, 0}]; ok {
 		t.Error("stranded thruster should be removed from the grid")
 	}
 	loose := phys.LooseParts()
-	if len(loose) != 1 {
-		t.Fatalf("expected 1 loose part, got %d", len(loose))
+	if len(loose) != 2 {
+		t.Fatalf("expected 2 loose parts, got %d", len(loose))
 	}
-	if loose[0].Part.Type != PartControlThruster {
-		t.Errorf("expected the stranded thruster to be loose, got %v", loose[0].Part.Type)
+	looseTypes := map[PartType]bool{}
+	for _, lp := range loose {
+		looseTypes[lp.Part.Type] = true
+	}
+	if !looseTypes[PartEngine] || !looseTypes[PartControlThruster] {
+		t.Errorf("expected the stranded engine and thruster to be loose, got %v", looseTypes)
 	}
 	// Every remaining part must still connect to the cockpit.
 	if err := ship.Validate(); err != nil {
 		t.Errorf("ship left in an invalid state: %v", err)
 	}
-	// Thruster count must drop so the ship's turn strength reflects the loss.
+	// Engine and thruster counts must drop so the ship's thrust and turn strength
+	// reflect the loss.
+	if sb.engines != 1 {
+		t.Errorf("expected 1 engine remaining, got %d", sb.engines)
+	}
 	if sb.thrusters != 1 {
 		t.Errorf("expected 1 thruster remaining, got %d", sb.thrusters)
 	}
@@ -95,8 +107,9 @@ func TestBreakNoStranding(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
 	phys, sb := addTestShip(ship)
 
-	// The left cannon at {-1,0} is a leaf: nothing hangs off it.
-	breakPart(t, ship, GridCoord{-1, 0})
+	// The left cannon at {-1,-1} is a leaf: it hangs off the block spine and the
+	// left flank block, and nothing hangs off it.
+	breakPart(t, ship, GridCoord{-1, -1})
 	phys.handleBreakage(sb)
 
 	if ship.Destroyed {
@@ -105,7 +118,7 @@ func TestBreakNoStranding(t *testing.T) {
 	if len(phys.LooseParts()) != 0 {
 		t.Errorf("expected no loose parts, got %d", len(phys.LooseParts()))
 	}
-	if _, ok := ship.Parts[GridCoord{-1, 0}]; ok {
+	if _, ok := ship.Parts[GridCoord{-1, -1}]; ok {
 		t.Error("broken cannon should be removed")
 	}
 	if err := ship.Validate(); err != nil {
