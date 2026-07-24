@@ -3,114 +3,70 @@ package main
 import (
 	"math"
 
-	"github.com/jakecoffman/cp"
 	rl "github.com/gen2brain/raylib-go/raylib"
+	"github.com/jakecoffman/cp"
 )
 
-// Physics tuning constants. Units are pixels, seconds, and pixel-mass (part
-// weights), so forces are in pixel·mass/s² and torque in pixel²·mass/s².
 const (
-	// engineThrust is the forward force produced by a single engine while W is held.
-	engineThrust = 1500.0
-	// thrusterTorque is the turning torque produced by a single control thruster
-	// while A or D is held.
+	engineThrust   = 1500.0
 	thrusterTorque = 90000.0
-	// spaceDamping is the fraction of a body's linear and angular velocity that
-	// survives each second, i.e. general drag. Below 1 the ship always coasts to
-	// a stop when unpowered.
+	// spaceDamping is the fraction of velocity that survives each second. Below 1
+	// the ship always coasts to a stop when unpowered.
 	spaceDamping = 0.55
 
-	// shipElasticity and asteroidElasticity control how bouncy each body is in a
-	// collision (0 = no rebound, 1 = fully elastic). Chipmunk multiplies the two
-	// colliding shapes' values, so these keep ship–asteroid and especially
-	// asteroid–asteroid hits springy.
 	shipElasticity     = 0.4
 	asteroidElasticity = 0.9
 
-	// asteroidDensity converts an asteroid's area (π·r²) into its mass, so bigger
-	// rocks are heavier and shove the ship around more when hit.
 	asteroidDensity = 0.02
 
-	// damagePerImpulse is how much part health is removed per unit of collision
-	// impulse. Harder hits (bigger, faster asteroids) do proportionally more damage.
 	damagePerImpulse = 0.05
-
-	// projectileDamage is the part health removed by a single projectile hit. It's
-	// a flat amount (unlike asteroid impacts, which scale with impulse), so cannon
-	// fire chews through parts at a predictable rate.
 	projectileDamage = 20.0
 )
 
-// Collision types tag shapes so the space can route ship↔asteroid contacts to
-// the damage handler. Untagged pairs still resolve physically (they bounce).
 const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
-	// collisionLoose tags a broken-off part. Loose parts have no damage handler
-	// registered against any type, so they bounce off ships, asteroids, and one
-	// another via the solver but never deal or take damage.
-	collisionLoose cp.CollisionType = 3
-	// collisionPlayer tags the spacewalking astronaut. Like loose parts it has no
-	// damage handler, so it bounces off ships, asteroids, and debris without ever
-	// dealing or taking damage.
+	// collisionLoose and collisionPlayer have no damage handler registered against
+	// any type, so those bodies bounce off everything via the solver but never deal
+	// or take damage.
+	collisionLoose  cp.CollisionType = 3
 	collisionPlayer cp.CollisionType = 4
 )
 
-// shipBody binds a ship to its rigid body and controller. Each frame the
-// controller emits Controls (thrust/turn/fire) that drive the body; the body's
-// resulting motion is synced back onto the ship. Every ship — player or enemy —
-// runs through one of these, so they all obey the same physics.
 type shipBody struct {
 	ship       *Ship
 	body       *cp.Body
 	controller Controller
 
-	// shipShapes maps each attached part to its collision shape on this ship's
-	// body, so a broken or stranded part's shape can be removed from the space.
 	shipShapes map[*Part]*cp.Shape
 
-	engines      int      // number of PartEngine parts (forward thrust)
-	thrusters    int      // number of PartControlThruster parts (turning)
-	fireCooldown float32  // time until the cannons may fire again
-	controls     Controls // this frame's controls, captured before the step
+	engines      int
+	thrusters    int
+	fireCooldown float32
+	controls     Controls
 }
 
-// Physics owns the Chipmunk space and every rigid body in it, and keeps each
-// ship's and asteroid's kinematic state in sync with the simulation.
 type Physics struct {
 	space *cp.Space
 	ships []*shipBody
 
-	// asteroids and asteroidBodies run in parallel: asteroidBodies[i] is the
-	// rigid body simulating asteroids[i], synced back onto it each step.
 	asteroids      []*Asteroid
 	asteroidBodies []*cp.Body
 
-	// looseParts and looseBodies run in parallel like the asteroid slices:
-	// looseBodies[i] simulates looseParts[i], synced back onto it each step. They
-	// are a shared debris field: parts broken off any ship end up here.
 	looseParts  []*LoosePart
 	looseBodies []*cp.Body
 
-	// player, playerBody and playerShape exist only during a spacewalk: the
-	// astronaut's simulated body, added to the space by AttachPlayer and removed
-	// by DetachPlayer. All are nil while the pilot is aboard.
 	player      *Player
 	playerBody  *cp.Body
 	playerShape *cp.Shape
 }
 
-// AttachPlayer adds a body for the spacewalking astronaut to the space at its
-// current position and velocity, so it collides with the ships, asteroids, and
-// debris. It carries its own collision type with no registered handler, so those
-// collisions resolve as pure physical bounces and deal no damage to anything.
 func (p *Physics) AttachPlayer(pl *Player) {
 	moment := cp.MomentForCircle(playerMass, 0, playerRadius, cp.Vector{})
 	body := cp.NewBody(playerMass, moment)
 	body.SetPosition(cp.Vector{X: float64(pl.Position.X), Y: float64(pl.Position.Y)})
 	body.SetVelocityVector(cp.Vector{X: float64(pl.Velocity.X), Y: float64(pl.Velocity.Y)})
-	// Custom velocity update applies the astronaut's own gentle drag instead of the
-	// space's default ship damping, preserving the light spacewalk drift.
+	// Apply the astronaut's own gentle drag instead of the space's ship damping.
 	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
 		b.UpdateVelocity(gravity, math.Pow(playerDamping, dt), dt)
 	})
@@ -126,8 +82,6 @@ func (p *Physics) AttachPlayer(pl *Player) {
 	p.playerShape = shape
 }
 
-// DetachPlayer removes the astronaut's body from the space (on re-entry). It is a
-// no-op if no spacewalk is in progress.
 func (p *Physics) DetachPlayer() {
 	if p.playerBody == nil {
 		return
@@ -139,18 +93,10 @@ func (p *Physics) DetachPlayer() {
 	p.playerShape = nil
 }
 
-// NewPhysics builds a space containing the asteroids. Ships are added afterward
-// with AddShip. The asteroids are circular bodies so they bounce off the ships
-// and off one another.
 func NewPhysics(asteroids []*Asteroid) *Physics {
 	space := cp.NewSpace()
-	// Global drag: no gravity, but every body sheds velocity over time so the
-	// ship glides to a halt instead of drifting forever.
 	space.SetDamping(spaceDamping)
 
-	// Add each asteroid as its own circular body. A custom velocity function
-	// cancels the global damping for asteroids only, so rocks coast through space
-	// instead of dragging to a halt like the ship.
 	asteroidBodies := make([]*cp.Body, 0, len(asteroids))
 	for _, a := range asteroids {
 		r := float64(a.Size)
@@ -158,6 +104,7 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		ab := cp.NewBody(m, cp.MomentForCircle(m, 0, r, cp.Vector{}))
 		ab.SetPosition(cp.Vector{X: float64(a.Position.X), Y: float64(a.Position.Y)})
 		ab.SetVelocityVector(cp.Vector{X: float64(a.Velocity.X), Y: float64(a.Velocity.Y)})
+		// Cancel the global damping (multiplier 1.0) so rocks coast forever.
 		ab.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
 			b.UpdateVelocity(gravity, 1.0, dt)
 		})
@@ -177,9 +124,8 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		asteroidBodies: asteroidBodies,
 	}
 
-	// On every ship–asteroid contact, damage the struck part in proportion to the
-	// collision impulse. The physical bounce is handled by the solver itself; this
-	// handler only reads the result back to apply damage.
+	// The solver handles the bounce; this handler only reads the impulse back to
+	// apply damage to the struck part.
 	handler := space.NewCollisionHandler(collisionShip, collisionAsteroid)
 	handler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		shipShape, _ := arb.Shapes()
@@ -188,9 +134,6 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		}
 	}
 
-	// Ship–ship contacts damage the struck part on both ships, again in proportion
-	// to the collision impulse. Both shapes are ship parts, so damage is applied to
-	// each of them.
 	shipHandler := space.NewCollisionHandler(collisionShip, collisionShip)
 	shipHandler.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		a, b := arb.Shapes()
@@ -206,8 +149,6 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 	return p
 }
 
-// damagePart removes health from a struck part in proportion to the collision
-// impulse, clamping at zero. Shared by the ship–asteroid and ship–ship handlers.
 func damagePart(part *Part, impulse float64) {
 	part.Health -= float32(impulse) * damagePerImpulse
 	if part.Health < 0 {
@@ -215,12 +156,9 @@ func damagePart(part *Part, impulse float64) {
 	}
 }
 
-// ResolveProjectiles tests every projectile against every ship part and every
-// asteroid, consuming any that connect. A projectile that strikes a ship part
-// removes projectileDamage from that part's health; one that strikes an asteroid
-// is destroyed with no effect (rocks shrug off cannon fire). Projectiles carry no
-// team, so a ship's own shots can strike it — friendly fire is intentional. The
-// surviving projectiles are returned (the input slice is filtered in place).
+// ResolveProjectiles tests every projectile against every ship part and asteroid,
+// consuming any that connect. Projectiles carry no team, so a ship's own shots can
+// strike it — friendly fire is intentional. Survivors are returned.
 func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 	live := projectiles[:0]
 	for _, pr := range projectiles {
@@ -232,10 +170,6 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 	return live
 }
 
-// projectileHit reports whether pr connected with a ship part or an asteroid this
-// frame, damaging a struck part. It tests the projectile's center point against
-// each ship's grid and each asteroid's disc — cheap for the handful of shots in
-// flight and precise enough at these speeds and sizes.
 func (p *Physics) projectileHit(pr *Projectile) bool {
 	for _, sb := range p.ships {
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
@@ -257,14 +191,9 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 }
 
 // AddShip builds a rigid body for ship and registers controller as the source of
-// its Controls. The body's center of gravity is the cockpit origin ({0,0} in the
-// part grid), so the simulation rotates the ship about the same point the
-// renderer does. Each part gets a box collision shape at its grid offset carrying
-// a pointer to its part, so the collision handler knows exactly which part is hit.
+// its Controls. The body's center of gravity is the cockpit origin, so the sim
+// rotates the ship about the same point the renderer does.
 func (p *Physics) AddShip(ship *Ship, controller Controller) {
-	// Sum mass and rotational inertia about the cockpit origin. Each part is a
-	// cellSize box offset by its grid position, so its contribution is the box's
-	// own moment plus the parallel-axis term m·r².
 	var mass, moment float64
 	var engines, thrusters int
 	for c, part := range ship.Parts {
@@ -287,7 +216,6 @@ func (p *Physics) AddShip(ship *Ship, controller Controller) {
 	body.SetAngle(float64(ship.Direction))
 	p.space.AddBody(body)
 
-	// Track each part's shape so it can be removed if the part breaks off.
 	shipShapes := make(map[*Part]*cp.Shape, len(ship.Parts))
 	for c, part := range ship.Parts {
 		center := cp.Vector{X: float64(c.X) * cellSize, Y: float64(c.Y) * cellSize}
@@ -309,20 +237,13 @@ func (p *Physics) AddShip(ship *Ship, controller Controller) {
 	})
 }
 
-// LooseParts returns the parts that have broken free of any ship, for rendering.
 func (p *Physics) LooseParts() []*LoosePart {
 	return p.looseParts
 }
 
-// Update pulls Controls from every ship's controller, applies them as force and
-// torque, steps the simulation by dt seconds, and writes the resulting motion
-// back onto each ship. Each ship emits exhaust into particles for whatever it's
-// firing, and ships that fired their cannons spawn projectiles, which are
-// returned. Each ship's Controls come from either player input or AI, but the
-// force/torque/exhaust/fire handling below is identical for all of them.
 func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	// GetFrameTime reports 0 on the first frame and can spike after a stall; clamp
-	// to a sane range so the integrator never divides by zero or takes a huge step.
+	// so the integrator never divides by zero or takes a huge step.
 	if dt <= 0 {
 		return nil
 	}
@@ -330,14 +251,11 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		dt = 1.0 / 30
 	}
 
-	// Apply each ship's controls. Force and torque are rebuilt from scratch every
-	// frame so dropping a control (key up, or the AI easing off) stops it at once.
 	for _, sb := range p.ships {
 		controls := sb.controller.Controls(float32(dt))
 
 		force := cp.Vector{}
 		if controls.Thrust != 0 {
-			// Forward is -Y in the ship's local frame (toward the nose/cockpit).
 			local := cp.Vector{X: 0, Y: -engineThrust * float64(sb.engines) * float64(controls.Thrust)}
 			force = sb.body.Rotation().Rotate(local)
 		}
@@ -346,8 +264,8 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		sb.controls = controls
 	}
 
-	// Drive the spacewalking astronaut with WASD, as a force scaled by its mass so
-	// the acceleration matches playerThrust regardless of mass.
+	// Drive the astronaut with a force scaled by its mass so the acceleration
+	// matches playerThrust regardless of mass.
 	if p.playerBody != nil {
 		dx, dy := walkInputDir()
 		p.playerBody.SetForce(cp.Vector{
@@ -358,9 +276,6 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 	p.space.Step(dt)
 
-	// Sync each body back onto its ship, cut loose any parts that broke this step,
-	// then (for ships that survived) emit exhaust and resolve firing. Destroyed
-	// ships are dropped from the list; their parts live on as loose debris.
 	var projectiles []*Projectile
 	survivors := p.ships[:0]
 	for _, sb := range p.ships {
@@ -371,8 +286,6 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		sb.ship.Velocity = rl.NewVector2(float32(vel.X), float32(vel.Y))
 		sb.ship.AngularVelocity = float32(sb.body.AngularVelocity())
 
-		// With the ship transform freshly synced, break off parts that died this
-		// step (and any left stranded from the cockpit). May destroy the ship.
 		p.handleBreakage(sb)
 		if sb.ship.Destroyed {
 			continue
@@ -389,7 +302,6 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	}
 	p.ships = survivors
 
-	// Write each asteroid body's motion back onto the asteroid it simulates.
 	for i, a := range p.asteroids {
 		apos := p.asteroidBodies[i].Position()
 		avel := p.asteroidBodies[i].Velocity()
@@ -397,7 +309,6 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		a.Velocity = rl.NewVector2(float32(avel.X), float32(avel.Y))
 	}
 
-	// Likewise sync each loose part's tumbling body back onto it for rendering.
 	for i, l := range p.looseParts {
 		lb := p.looseBodies[i]
 		lpos := lb.Position()
@@ -407,7 +318,6 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		l.Rotation = float32(lb.Angle())
 	}
 
-	// Sync the astronaut's simulated motion back for rendering and re-entry checks.
 	if p.playerBody != nil && p.player != nil {
 		ppos := p.playerBody.Position()
 		pvel := p.playerBody.Velocity()
@@ -418,16 +328,14 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	return projectiles
 }
 
-// handleBreakage removes parts of sb whose health has reached zero and cuts loose
-// any parts thereby stranded from the cockpit. A destroyed cockpit scatters the
-// whole ship. It must run outside space.Step (bodies/shapes can't be mutated
-// mid-step).
+// handleBreakage removes parts of sb whose health reached zero and cuts loose any
+// parts thereby stranded from the cockpit; a destroyed cockpit scatters the whole
+// ship. Must run outside space.Step — bodies/shapes can't be mutated mid-step.
 func (p *Physics) handleBreakage(sb *shipBody) {
 	s := sb.ship
 
 	cockpit, hasCockpit := s.Cockpit()
 
-	// Collect the parts that broke this step. Losing the cockpit destroys the ship.
 	var broken []GridCoord
 	cockpitBroken := false
 	for c, part := range s.Parts {
@@ -451,7 +359,6 @@ func (p *Physics) handleBreakage(sb *shipBody) {
 		p.removeShipPart(sb, c)
 	}
 
-	// Any part no longer connected to the cockpit breaks free as a loose part.
 	connected := s.connectedParts(cockpit)
 	var stranded []GridCoord
 	for c := range s.Parts {
@@ -464,13 +371,11 @@ func (p *Physics) handleBreakage(sb *shipBody) {
 		p.removeShipPart(sb, c)
 	}
 
-	// Removing mass and engines/thrusters changes how the ship flies; rebuild it.
 	p.recomputeShipBody(sb)
 }
 
-// removeShipPart deletes the part at c from sb's ship grid and removes its
-// collision shape from the space. It leaves the ship body's mass untouched;
-// callers rebuild that once after a batch of removals.
+// removeShipPart deletes the part at c and removes its collision shape. It leaves
+// the ship body's mass untouched; callers rebuild that after a batch of removals.
 func (p *Physics) removeShipPart(sb *shipBody, c GridCoord) {
 	part, ok := sb.ship.Parts[c]
 	if !ok {
@@ -483,10 +388,9 @@ func (p *Physics) removeShipPart(sb *shipBody, c GridCoord) {
 	delete(sb.ship.Parts, c)
 }
 
-// spawnLoosePart creates a free-floating body for the part at grid coordinate c
-// on sb's ship. The debris inherits the velocity of that point on the ship
-// (linear plus the spin about the cockpit) so it flies off naturally, and coasts
-// without drag like an asteroid. The caller still removes the part from the grid.
+// spawnLoosePart creates a free-floating body for the part at c. The debris
+// inherits the velocity of that point on the ship (body velocity plus ω × r) so it
+// flies off naturally. The caller still removes the part from the grid.
 func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	part, ok := sb.ship.Parts[c]
 	if !ok {
@@ -494,8 +398,6 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	}
 	worldPos := sb.ship.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 
-	// Velocity of the ship at this world point: body velocity plus ω × r, where r
-	// is the offset from the ship body's center (the cockpit origin).
 	bodyPos := sb.body.Position()
 	bodyVel := sb.body.Velocity()
 	w := sb.body.AngularVelocity()
@@ -509,7 +411,7 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 	body.SetAngle(float64(sb.ship.Direction))
 	body.SetVelocityVector(vel)
 	body.SetAngularVelocity(w)
-	// Cancel global damping so debris coasts through space like the asteroids do.
+	// Cancel global damping (multiplier 1.0) so debris coasts like the asteroids.
 	body.SetVelocityUpdateFunc(func(b *cp.Body, gravity cp.Vector, _, dt float64) {
 		b.UpdateVelocity(gravity, 1.0, dt)
 	})
@@ -530,13 +432,11 @@ func (p *Physics) spawnLoosePart(sb *shipBody, c GridCoord) {
 }
 
 // destroyShip scatters every remaining part of sb as loose debris and removes its
-// body from the space, marking the ship destroyed. Called when the cockpit is
-// lost (or somehow already gone). The caller drops the ship from p.ships.
+// body, marking the ship destroyed. The cockpit simply vanishes rather than
+// scattering. The caller drops the ship from p.ships.
 func (p *Physics) destroyShip(sb *shipBody) {
 	s := sb.ship
 
-	// Fling each part off before the body goes away (spawnLoosePart reads it).
-	// The cockpit is gone — it simply vanishes rather than scattering as debris.
 	for c, part := range s.Parts {
 		if part.Type == PartCockpit {
 			continue
@@ -555,9 +455,6 @@ func (p *Physics) destroyShip(sb *shipBody) {
 	sb.thrusters = 0
 }
 
-// recomputeShipBody recomputes sb's body mass, moment, and engine/thruster counts
-// over the parts that remain after some broke off, keeping the simulation (and
-// thrust/turn strength) consistent with the smaller ship.
 func (p *Physics) recomputeShipBody(sb *shipBody) {
 	var mass, moment float64
 	var engines, thrusters int
