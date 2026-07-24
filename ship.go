@@ -264,6 +264,20 @@ func (s *Ship) distToCell(p rl.Vector2, c GridCoord) float32 {
 	return float32(math.Sqrt(float64(ex*ex + ey*ey)))
 }
 
+// isExterior reports whether the part at cell c sits on the hull's outer surface:
+// at least one of its four orthogonal neighbors is empty, so an astronaut could
+// reach it from open space. Parts walled in on all four sides are interior and
+// can't be pried off. (An empty cell trivially counts as exterior, but callers
+// only ask about occupied cells.)
+func (s *Ship) isExterior(c GridCoord) bool {
+	for _, n := range c.neighbors() {
+		if _, ok := s.Parts[n]; !ok {
+			return true
+		}
+	}
+	return false
+}
+
 // canAttachAt reports whether a scavenged part may be placed at grid cell c: the
 // cell must be empty and orthogonally adjacent to at least one existing part, so
 // every added part stays connected to the rest of the ship (and its cockpit).
