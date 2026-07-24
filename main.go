@@ -54,6 +54,7 @@ func main() {
 
 	var player Player
 	var scavenger Scavenger
+	var repair RepairTool
 	spacewalking := false
 
 	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
@@ -105,6 +106,11 @@ func main() {
 			} else {
 				// Grab, drag, and attach loose parts while out on the walk.
 				scavenger.Update(physics, ship, &player, camera)
+				// Right click mends nearby parts, but not mid-drag (both use the
+				// mouse), so only when nothing is in hand.
+				if scavenger.Held == nil {
+					repair.Update(ship, &player, camera, dt)
+				}
 			}
 		} else if rl.IsKeyPressed(rl.KeyF) {
 			player.EjectFrom(ship)
@@ -161,6 +167,9 @@ func main() {
 		}
 		ship.Draw()
 		if spacewalking {
+			// The repair beam draws under the astronaut so it reads as coming from
+			// the suit rather than over it.
+			repair.Draw()
 			player.Draw()
 			// The part being scavenged draws over the ship as a placement preview.
 			scavenger.Draw(ship)
@@ -171,7 +180,7 @@ func main() {
 		hint := "F: spacewalk"
 		if spacewalking {
 			minimapPlayer = &player
-			hint = "WASD: move  ·  hold LMB: grab part"
+			hint = "WASD: move  ·  hold LMB: grab part  ·  hold RMB: repair"
 			if scavenger.Held != nil {
 				hint = "R: rotate  ·  release LMB: attach"
 			} else if player.NearCockpit(ship) {

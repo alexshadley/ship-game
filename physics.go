@@ -26,7 +26,7 @@ const (
 
 	asteroidDensity = 0.02
 
-	damagePerImpulse = 0.05
+	damagePerImpulse = 0.01
 	projectileDamage = 5.0
 )
 
