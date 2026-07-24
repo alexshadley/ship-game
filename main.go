@@ -16,7 +16,7 @@ const (
 	windowHeight = 1080
 
 	pilotingZoom      = 0.25
-	spacewalkZoom     = 1.0
+	spacewalkZoom     = 0.7
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
 )
