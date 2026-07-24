@@ -52,10 +52,10 @@ type shipBody struct {
 	body       *cp.Body
 	controller Controller
 
-	engines      int     // number of PartEngine parts (forward thrust)
-	thrusters    int     // number of PartControlThruster parts (turning)
-	fireCooldown float32 // time until the cannons may fire again
-	wantFire     bool    // fire signal captured before the step, applied after
+	engines      int      // number of PartEngine parts (forward thrust)
+	thrusters    int      // number of PartControlThruster parts (turning)
+	fireCooldown float32  // time until the cannons may fire again
+	controls     Controls // this frame's controls, captured before the step
 }
 
 // Physics owns the Chipmunk space and every rigid body in it, and keeps each
@@ -178,10 +178,11 @@ func (p *Physics) AddShip(ship *Ship, controller Controller) {
 
 // Update pulls Controls from every ship's controller, applies them as force and
 // torque, steps the simulation by dt seconds, and writes the resulting motion
-// back onto each ship. Ships that fired this step spawn projectiles, which are
+// back onto each ship. Each ship emits exhaust into particles for whatever it's
+// firing, and ships that fired their cannons spawn projectiles, which are
 // returned. Each ship's Controls come from either player input or AI, but the
-// force/torque/fire handling below is identical for all of them.
-func (p *Physics) Update(dt float64) []*Projectile {
+// force/torque/exhaust/fire handling below is identical for all of them.
+func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	// GetFrameTime reports 0 on the first frame and can spike after a stall; clamp
 	// to a sane range so the integrator never divides by zero or takes a huge step.
 	if dt <= 0 {
@@ -204,13 +205,13 @@ func (p *Physics) Update(dt float64) []*Projectile {
 		}
 		sb.body.SetForce(force)
 		sb.body.SetTorque(thrusterTorque * float64(sb.thrusters) * float64(controls.Turn))
-		sb.wantFire = controls.Fire
+		sb.controls = controls
 	}
 
 	p.space.Step(dt)
 
-	// Sync each body back onto its ship, then resolve firing (after the step so the
-	// muzzle sits at the ship's post-step position).
+	// Sync each body back onto its ship, then (after the step, so plumes and muzzles
+	// sit at the ship's post-step position) emit exhaust and resolve firing.
 	var projectiles []*Projectile
 	for _, sb := range p.ships {
 		pos := sb.body.Position()
@@ -220,8 +221,10 @@ func (p *Physics) Update(dt float64) []*Projectile {
 		sb.ship.Velocity = rl.NewVector2(float32(vel.X), float32(vel.Y))
 		sb.ship.AngularVelocity = float32(sb.body.AngularVelocity())
 
+		emitExhaust(sb.ship, sb.controls, particles)
+
 		sb.fireCooldown -= float32(dt)
-		if sb.wantFire && sb.fireCooldown <= 0 {
+		if sb.controls.Fire && sb.fireCooldown <= 0 {
 			projectiles = append(projectiles, sb.ship.FireCannons()...)
 			sb.fireCooldown = cannonFireInterval
 		}

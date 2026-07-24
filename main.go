@@ -53,6 +53,7 @@ func main() {
 
 	asteroids := DefaultAsteroids()
 	physics := NewPhysics(asteroids)
+	particles := NewParticleSystem()
 
 	// The player and the AI enemies are all run by the physics from Controls; only
 	// the source of those controls (keyboard vs. AI) differs.
@@ -68,8 +69,10 @@ func main() {
 		dt := rl.GetFrameTime()
 
 		// Step the whole simulation. Every ship pulls its own Controls, thrusts and
-		// turns under the same physics, and any that fired return projectiles.
-		projectiles = append(projectiles, physics.Update(float64(dt))...)
+		// turns under the same physics, spawns exhaust for whatever it's firing, and
+		// any that fired their cannons return projectiles.
+		projectiles = append(projectiles, physics.Update(float64(dt), particles)...)
+		particles.Update(dt)
 
 		// Advance projectiles and drop any that have expired.
 		live := projectiles[:0]
@@ -91,6 +94,8 @@ func main() {
 		for _, a := range asteroids {
 			a.Draw()
 		}
+		// Exhaust draws before the ship so plumes read as coming out from under it.
+		particles.Draw()
 		for _, pr := range projectiles {
 			pr.Draw()
 		}
@@ -109,5 +114,34 @@ func main() {
 		rl.ClearBackground(rl.Black)
 		rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
 		rl.EndDrawing()
+	}
+}
+
+// emitExhaust spawns exhaust particles for each engine and control thruster a
+// ship is firing this frame, mirroring its Controls: Thrust fires the engines and
+// Turn fires the control thrusters. It reads the same signals the physics uses to
+// move the ship, so any ship — player or AI — plumes exactly when it maneuvers.
+func emitExhaust(ship *Ship, controls Controls, particles *ParticleSystem) {
+	if controls.Thrust > 0 {
+		for _, src := range ship.EngineExhaustSources() {
+			for i := 0; i < engineParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, engineExhaustColor)
+			}
+		}
+	}
+
+	// Turn's sign picks which thrusters fire; zero (or A+D cancelling) plumes none.
+	turn := 0
+	if controls.Turn < 0 {
+		turn = -1
+	} else if controls.Turn > 0 {
+		turn = 1
+	}
+	if turn != 0 {
+		for _, src := range ship.ControlThrusterExhaustSources(turn) {
+			for i := 0; i < thrusterParticlesPerFrame; i++ {
+				particles.Emit(src.Pos, src.Dir, ship.Velocity, thrusterExhaustColor)
+			}
+		}
 	}
 }
