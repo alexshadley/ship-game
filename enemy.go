@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"math/rand"
+	"path/filepath"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -227,6 +228,26 @@ func SpawnEnemy(target *Ship, asteroids []*Asteroid) (*Ship, Controller) {
 		target.Position.X+float32(math.Cos(angle))*enemySpawnRadius,
 		target.Position.Y+float32(math.Sin(angle))*enemySpawnRadius,
 	)
-	enemy := EnemyShip(pos)
+	enemy := rosterEnemyShip(pos)
 	return enemy, NewEnemyAI(enemy, target, asteroids)
+}
+
+// enemyRoster lists the ship designs (files in ships/) that spawn as enemies.
+// Add more entries here to widen the rotation; a random one is chosen per spawn.
+var enemyRoster = []string{"raider.json", "l_ship.json"}
+
+// rosterEnemyShip loads a random valid design from enemyRoster. The files are
+// re-read on every spawn, so edits saved in the designer take effect without a
+// restart. It falls back to the built-in EnemyShip if nothing valid loads.
+func rosterEnemyShip(pos rl.Vector2) *Ship {
+	roster := append([]string(nil), enemyRoster...)
+	rand.Shuffle(len(roster), func(i, j int) { roster[i], roster[j] = roster[j], roster[i] })
+	for _, name := range roster {
+		ship, err := LoadShipFile(filepath.Join(shipsDir, name), pos)
+		if err != nil || ship.Validate() != nil {
+			continue
+		}
+		return ship
+	}
+	return EnemyShip(pos)
 }
