@@ -97,19 +97,19 @@ func TestBreakNoStranding(t *testing.T) {
 	ship := DefaultShip(rl.NewVector2(0, 0))
 	phys, sb := addTestShip(ship)
 
-	// The left cannon at {-1,-1} is a leaf: it hangs off the block spine and the
+	// The left PDC at {-1,-1} is a leaf: it hangs off the block spine and the
 	// left flank block, and nothing hangs off it.
 	breakPart(t, ship, GridCoord{-1, -1})
 	phys.handleBreakage(sb)
 
 	if ship.Destroyed {
-		t.Fatal("ship should survive losing a cannon")
+		t.Fatal("ship should survive losing a PDC")
 	}
 	if len(phys.LooseParts()) != 0 {
 		t.Errorf("expected no loose parts, got %d", len(phys.LooseParts()))
 	}
 	if _, ok := ship.Parts[GridCoord{-1, -1}]; ok {
-		t.Error("broken cannon should be removed")
+		t.Error("broken PDC should be removed")
 	}
 	if err := ship.Validate(); err != nil {
 		t.Errorf("ship left in an invalid state: %v", err)

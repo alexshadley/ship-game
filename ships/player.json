@@ -9,7 +9,7 @@
     {
       "x": -1,
       "y": -1,
-      "type": "Cannon",
+      "type": "PDC",
       "facing": "Up"
     },
     {
@@ -21,7 +21,7 @@
     {
       "x": 1,
       "y": -1,
-      "type": "Cannon",
+      "type": "PDC",
       "facing": "Up"
     },
     {
