@@ -110,6 +110,9 @@ type Part struct {
 	Facing Facing
 	Health float32
 	Weight float32
+	// FireCooldown is the per-cannon countdown to its next shot, so each cannon
+	// fires on its own cadence regardless of the ship's other cannons.
+	FireCooldown float32
 }
 
 type partSpec struct {

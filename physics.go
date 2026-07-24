@@ -47,10 +47,9 @@ type shipBody struct {
 
 	shipShapes map[*Part]*cp.Shape
 
-	engines      int
-	thrusters    int
-	fireCooldown float32
-	controls     Controls
+	engines   int
+	thrusters int
+	controls  Controls
 }
 
 type Physics struct {
@@ -359,11 +358,7 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 		emitExhaust(sb.ship, sb.controls, particles)
 
-		sb.fireCooldown -= float32(dt)
-		if sb.controls.Fire && sb.fireCooldown <= 0 {
-			projectiles = append(projectiles, sb.ship.FireCannons()...)
-			sb.fireCooldown = sb.ship.FireInterval()
-		}
+		projectiles = append(projectiles, sb.ship.FireCannons(float32(dt), sb.controls.Fire)...)
 	}
 	p.ships = survivors
 
