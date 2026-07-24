@@ -34,6 +34,11 @@ const (
 	// enemyFireAngle is how closely (radians) an enemy must be aimed at the player
 	// before it will fire.
 	enemyFireAngle = 0.3
+	// enemyFireRange is how close (world px) an enemy must be to the player before
+	// it will fire. It's roughly the piloting view's visible half-extent (~1470 at
+	// pilotingZoom) so enemies engage around the time they come onscreen, without
+	// tying the rule to the exact viewport size.
+	enemyFireRange = 1400
 )
 
 // EnemyAI is a Controller that drives an enemy ship. It reuses the same Controls
@@ -80,6 +85,7 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	dx := ai.target.Position.X - ai.ship.Position.X
 	dy := ai.target.Position.Y - ai.ship.Position.Y
 	aimHeading := heading(dx, dy)
+	inFireRange := dx*dx+dy*dy <= enemyFireRange*enemyFireRange
 
 	var desired float32 // heading to steer toward
 	var thrust float32
@@ -87,7 +93,7 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	switch ai.action {
 	case ActionAttack:
 		desired = aimHeading
-		fire = float32(math.Abs(float64(angleDiff(ai.ship.Direction, aimHeading)))) < enemyFireAngle
+		fire = inFireRange && float32(math.Abs(float64(angleDiff(ai.ship.Direction, aimHeading)))) < enemyFireAngle
 	case ActionMoveCloser:
 		desired = aimHeading
 		thrust = 1
