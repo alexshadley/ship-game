@@ -244,6 +244,26 @@ func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
 	return s.Parts[s.gridAtWorld(wp)]
 }
 
+// distToCell returns the distance from world point p to the nearest point of grid
+// cell c's box (not its center), so reaching "any part of the block" counts. It
+// works in the ship's local frame, where the cell is an axis-aligned cellSize box
+// centered on the cell; distance is preserved under the rotation back to world.
+func (s *Ship) distToCell(p rl.Vector2, c GridCoord) float32 {
+	sin := float32(math.Sin(float64(s.Direction)))
+	cos := float32(math.Cos(float64(s.Direction)))
+	dx := p.X - s.Position.X
+	dy := p.Y - s.Position.Y
+	lx := dx*cos + dy*sin
+	ly := -dx*sin + dy*cos
+
+	half := float32(cellSize) / 2
+	cx := float32(c.X) * cellSize
+	cy := float32(c.Y) * cellSize
+	ex := clamp(lx, cx-half, cx+half) - lx
+	ey := clamp(ly, cy-half, cy+half) - ly
+	return float32(math.Sqrt(float64(ex*ex + ey*ey)))
+}
+
 // canAttachAt reports whether a scavenged part may be placed at grid cell c: the
 // cell must be empty and orthogonally adjacent to at least one existing part, so
 // every added part stays connected to the rest of the ship (and its cockpit).
