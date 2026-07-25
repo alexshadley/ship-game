@@ -16,6 +16,12 @@ type EnemyAI struct {
 	ship   *Ship
 	target *Ship
 
+	// threats yields the world points this enemy's PDC should prefer over the
+	// target ship each frame — the player's in-flight missiles and the exposed
+	// spacewalking astronaut. It reads live game state, so it's queried per frame;
+	// nil means no threats (the PDC stays on the target ship).
+	threats func() []rl.Vector2
+
 	// desired is the goal heading enemyControls steered toward on the last Controls
 	// call, cached so the AI debug overlay can draw it. The ship rotates toward this
 	// but thrusts along its current facing, so the two only coincide once it
@@ -23,12 +29,16 @@ type EnemyAI struct {
 	desired float32
 }
 
-func NewEnemyAI(self, target *Ship) *EnemyAI {
-	return &EnemyAI{ship: self, target: target}
+func NewEnemyAI(self, target *Ship, threats func() []rl.Vector2) *EnemyAI {
+	return &EnemyAI{ship: self, target: target, threats: threats}
 }
 
 func (ai *EnemyAI) Controls(dt float32) Controls {
-	c, desired := enemyControls(AIWorld{Self: ai.ship, Target: ai.target})
+	var threats []rl.Vector2
+	if ai.threats != nil {
+		threats = ai.threats()
+	}
+	c, desired := enemyControls(AIWorld{Self: ai.ship, Target: ai.target, Threats: threats})
 	ai.desired = desired
 	return c
 }
@@ -80,14 +90,14 @@ const (
 	enemySpawnInterval = 30
 )
 
-func SpawnEnemy(target *Ship) (*Ship, *EnemyAI) {
+func SpawnEnemy(target *Ship, threats func() []rl.Vector2) (*Ship, *EnemyAI) {
 	angle := rand.Float64() * 2 * math.Pi
 	pos := rl.NewVector2(
 		target.Position.X+float32(math.Cos(angle))*enemySpawnRadius,
 		target.Position.Y+float32(math.Sin(angle))*enemySpawnRadius,
 	)
 	enemy := rosterEnemyShip(pos)
-	return enemy, NewEnemyAI(enemy, target)
+	return enemy, NewEnemyAI(enemy, target, threats)
 }
 
 // enemyRoster lists the ship designs (files in ships/) that spawn as enemies.

@@ -10,13 +10,15 @@ type Controls struct {
 	// Fire holds the PDC trigger; FireMissiles holds the missile-launcher
 	// trigger. They fire independently (AIs may loose one without the other);
 	// the player's right mouse fires PDCs, left mouse fires missiles, and shift
-	// also fires missiles. FireTarget is where both weapon types
-	// should aim: a world-frame offset from the ship's origin (the cockpit cell)
-	// to the aim point. The player aims at the cursor; AIs aim at their target's
-	// cockpit.
-	Fire         bool
-	FireMissiles bool
-	FireTarget   rl.Vector2
+	// also fires missiles. PDCTarget and MissileTarget are where each weapon type
+	// aims: a world-frame offset from the ship's origin (the cockpit cell) to the
+	// aim point. The player aims both at the cursor, so they coincide; enemy AIs
+	// aim their missiles at the target ship but retask their PDCs onto nearer
+	// threats (inbound missiles, an exposed astronaut) when one is in range.
+	Fire          bool
+	FireMissiles  bool
+	PDCTarget     rl.Vector2
+	MissileTarget rl.Vector2
 	// EnforceEngagementRange gates each weapon mount's fire on that weapon's
 	// engagement range (see PartType.engagementRange). The AI sets it so enemies
 	// hold the trigger continuously but only open up once a shot can reach; the
@@ -53,7 +55,10 @@ func (p PlayerInput) Controls(dt float32) Controls {
 	c.FireMissiles = rl.IsMouseButtonDown(rl.MouseLeftButton) || rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
 	if c.Fire || c.FireMissiles {
 		m := mouseWorld(*p.camera)
-		c.FireTarget = rl.NewVector2(m.X-p.ship.Position.X, m.Y-p.ship.Position.Y)
+		aim := rl.NewVector2(m.X-p.ship.Position.X, m.Y-p.ship.Position.Y)
+		// The player aims both weapon types at the cursor.
+		c.PDCTarget = aim
+		c.MissileTarget = aim
 	}
 	return c
 }
