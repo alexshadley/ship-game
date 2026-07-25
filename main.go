@@ -145,14 +145,11 @@ func main() {
 
 	// The player's wallet and the parts they own. Both are shared with the shop
 	// (by pointer / by reference), so buying and fitting parts there carries back
-	// into the running game. Start with a little seed money and a few basic parts.
+	// into the running game. Inventory holds only unplaced parts — bought or pulled
+	// off the ship — so it starts empty (the starting ship is already assembled) and
+	// does not persist between games. Money starts at zero; sell parts to earn some.
 	money := 0
-	inventory := map[PartType]int{
-		PartBlock:  6,
-		PartEngine: 2,
-		PartArmor:  2,
-		PartPDC:    1,
-	}
+	inventory := map[PartType]int{}
 
 	// startRound resets the battlefield and clock for a fresh round: the previous
 	// round's enemies and projectiles are cleared, a new enemy warps in, and the
