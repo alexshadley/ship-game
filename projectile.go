@@ -25,6 +25,11 @@ const (
 	pdcProjectileDrag     = 1.2
 	pdcProjectileLifespan = 1.8
 
+	// pdcEngagementRange is how close (world px) the fire target must be before a
+	// PDC mount opens up when Controls.EnforceEngagementRange is set. It sits at
+	// the practical reach of a PDC round so the AI only fires shots that arrive.
+	pdcEngagementRange = 900
+
 	// Missiles are a heavy, slow-firing weapon fired from a PartMissileLauncher.
 	// A launcher spits one roughly every missileFireInterval seconds and only
 	// within a tight missileHalfArc of its mount. The round leaves the tube slowly
@@ -39,6 +44,12 @@ const (
 	missileAcceleration = 650.0
 	missileLifespan     = 5.0
 	missileHealth       = 15.0
+
+	// missileEngagementRange is the fire-target distance (world px) within which a
+	// missile launcher opens up when Controls.EnforceEngagementRange is set. A
+	// missile self-propels to a cruise speed and reaches far further than a PDC
+	// round, so it engages from about twice the PDC range.
+	missileEngagementRange = 2 * pdcEngagementRange
 )
 
 var (
@@ -183,6 +194,16 @@ func (t PartType) halfArc() float32 {
 	return pdcHalfArc
 }
 
+// engagementRange is how close (world px) the fire target must be for this mount
+// to open fire when Controls.EnforceEngagementRange is set. A missile launcher
+// reaches about twice as far as a PDC. The player fires without this gate.
+func (t PartType) engagementRange() float32 {
+	if t == PartMissileLauncher {
+		return missileEngagementRange
+	}
+	return pdcEngagementRange
+}
+
 // FireWeapons advances each weapon mount's independent cooldown and returns the
 // rounds from mounts ready to fire while the trigger is held. Each mount aims
 // itself at the controls' fire target (a world-frame offset from the ship
@@ -214,6 +235,12 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 		dy := target.Y - center.Y
 		dist := float32(math.Hypot(float64(dx), float64(dy)))
 		if dist == 0 {
+			continue
+		}
+		// The AI holds its trigger continuously; each mount only opens up once the
+		// target is within its own weapon's engagement range. The player fires
+		// without this gate.
+		if controls.EnforceEngagementRange && dist > part.Type.engagementRange() {
 			continue
 		}
 		aim := heading(dx, dy)

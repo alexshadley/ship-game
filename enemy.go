@@ -11,8 +11,7 @@ import (
 type EnemyAction int
 
 const (
-	ActionAttack EnemyAction = iota
-	ActionStrafe
+	ActionStrafe EnemyAction = iota
 	ActionMoveCloser
 	numEnemyActions
 )
@@ -22,10 +21,6 @@ const (
 	enemyActionMax = 3.0
 	enemyTurnP = 1.5
 	enemyTurnD = 0.5
-	// enemyFireRange is how close (world px) an enemy must be to the player before
-	// it will fire. PDC rounds fizzle out around 900 px (see pdcProjectileDrag),
-	// so this sits inside that reach so rounds still arrive with some pace.
-	enemyFireRange = 800
 
 	// avoidLookahead is how far ahead (world px) beyond an obstacle's clearance an
 	// enemy starts reacting to it.
@@ -73,18 +68,10 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	dx := ai.target.Position.X - ai.ship.Position.X
 	dy := ai.target.Position.Y - ai.ship.Position.Y
 	aimHeading := heading(dx, dy)
-	inFireRange := dx*dx+dy*dy <= enemyFireRange*enemyFireRange
 
 	var desired float32
 	var thrust float32
-	var fire bool
 	switch ai.action {
-	case ActionAttack:
-		// PDCs slew their own aim, so attacking is just closing to range and
-		// pulling the trigger; pointing the nose at the player is for show (and
-		// keeps the forward-mounted arcs on target).
-		desired = aimHeading
-		fire = inFireRange
 	case ActionMoveCloser:
 		desired = aimHeading
 		thrust = 1
@@ -106,9 +93,17 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	err := angleDiff(desired, ai.ship.Direction)
 	turn := clamp(err*enemyTurnP-ai.ship.AngularVelocity*enemyTurnD, -1, 1)
 
-	// The fire target is the player's cockpit: the target ship's origin is its
-	// cockpit cell, so the offset from our origin is simply the position delta.
-	return Controls{Thrust: thrust, Turn: turn, Fire: fire, FireTarget: rl.NewVector2(dx, dy)}
+	// The enemy always holds its trigger and aims at the player's cockpit (the
+	// target ship's origin is its cockpit cell, so the offset from our origin is
+	// simply the position delta). Each weapon mount only actually fires once the
+	// player is within that weapon's engagement range — see FireWeapons.
+	return Controls{
+		Thrust:                 thrust,
+		Turn:                   turn,
+		Fire:                   true,
+		FireTarget:             rl.NewVector2(dx, dy),
+		EnforceEngagementRange: true,
+	}
 }
 
 // avoidHeading blends repulsion from nearby asteroids and the player into the unit
