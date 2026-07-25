@@ -229,6 +229,11 @@ func main() {
 				// The part being scavenged draws over the ship as a placement preview.
 				scavenger.Draw(ship, physics, &player)
 			}
+			// While piloting, mark where the PDCs are aiming. Hidden on spacewalks
+			// (LMB grabs parts, not fire) and once the run is over.
+			if state == StatePlaying && !spacewalking && !gameOver {
+				drawFireCrosshair(camera)
+			}
 			rl.EndMode2D()
 
 			var minimapPlayer *Player
