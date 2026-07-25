@@ -66,6 +66,28 @@ const (
 	projectileMissile
 )
 
+// drawFireCrosshair marks where the player's PDCs are aiming — a gapped tactical
+// reticle at the cursor's world position, so the mouse reads as a weapon sight
+// now that holding LMB fires. Drawn in world space to line up exactly with the
+// FireTarget the PDCs slew toward.
+func drawFireCrosshair(camera rl.Camera2D) {
+	c := mouseWorld(camera)
+	const (
+		r   = cellSize * 0.35 // ring radius
+		gap = cellSize * 0.14 // gap between ring and tick marks
+		arm = cellSize * 0.22 // length of each tick mark
+	)
+	col := rl.NewColor(255, 90, 70, 220)
+	rl.DrawCircleLines(int32(c.X), int32(c.Y), r, col)
+	// Four tick marks pointing inward, leaving the center open.
+	rl.DrawLineEx(rl.NewVector2(c.X-r-gap-arm, c.Y), rl.NewVector2(c.X-r-gap, c.Y), 1, col)
+	rl.DrawLineEx(rl.NewVector2(c.X+r+gap, c.Y), rl.NewVector2(c.X+r+gap+arm, c.Y), 1, col)
+	rl.DrawLineEx(rl.NewVector2(c.X, c.Y-r-gap-arm), rl.NewVector2(c.X, c.Y-r-gap), 1, col)
+	rl.DrawLineEx(rl.NewVector2(c.X, c.Y+r+gap), rl.NewVector2(c.X, c.Y+r+gap+arm), 1, col)
+	// A center dot pinpoints the exact aim.
+	rl.DrawCircle(int32(c.X), int32(c.Y), 1, col)
+}
+
 type Projectile struct {
 	Position rl.Vector2
 	Velocity rl.Vector2
