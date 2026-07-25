@@ -53,9 +53,9 @@ const (
 
 	// missileEngagementRange is the fire-target distance (world px) within which a
 	// missile launcher opens up when Controls.EnforceEngagementRange is set. A
-	// missile self-propels to a cruise speed but engages at close-in range so
-	// launchers only open fire once the target is well within reach.
-	missileEngagementRange = 900
+	// missile self-propels to a cruise speed, so it reaches about twice as far as a
+	// PDC and launchers open fire at a correspondingly longer range.
+	missileEngagementRange = 1800
 )
 
 var (
