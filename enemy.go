@@ -41,6 +41,13 @@ type EnemyAI struct {
 	action     EnemyAction
 	actionTime float32
 	strafeSign float32
+
+	// desired is the goal heading the AI steered toward on the last Controls call:
+	// toward the target when closing, perpendicular when strafing, then bent around
+	// obstacles by avoidHeading. Stored so the AI debug overlay can draw it. Note the
+	// ship rotates toward this but thrusts along its current facing, so the two only
+	// coincide once it finishes turning.
+	desired float32
 }
 
 func NewEnemyAI(self, target *Ship, asteroids []*Asteroid) *EnemyAI {
@@ -89,6 +96,8 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 		}
 	}
 
+	ai.desired = desired
+
 	// PD steering: turn proportional to heading error, braked by the turn rate.
 	err := angleDiff(desired, ai.ship.Direction)
 	turn := clamp(err*enemyTurnP-ai.ship.AngularVelocity*enemyTurnD, -1, 1)
@@ -105,6 +114,48 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 		FireTarget:             rl.NewVector2(dx, dy),
 		EnforceEngagementRange: true,
 	}
+}
+
+// DrawDebug overlays this enemy's AI state for the AI debug mode: a ring at each
+// weapon's engagement range (the distance at which that mount opens fire) and a line
+// along the goal heading the AI is steering toward this frame. The direction line is
+// the heading the ship is trying to turn toward — toward the player when closing,
+// perpendicular when strafing, bent around obstacles by avoidHeading. Because the
+// ship thrusts along its current facing, this only matches its actual travel once it
+// has finished rotating. Drawn in world space, so call it inside BeginMode2D.
+func (ai *EnemyAI) DrawDebug() {
+	pos := ai.ship.Position
+
+	// One ring per distinct weapon range the ship actually mounts. Currently PDCs
+	// and missiles share a range, so this is usually a single circle.
+	var maxRange float32
+	seen := map[float32]bool{}
+	for _, part := range ai.ship.Parts {
+		if !part.Type.isWeapon() {
+			continue
+		}
+		r := part.Type.engagementRange()
+		if r > maxRange {
+			maxRange = r
+		}
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		rl.DrawCircleLines(int32(pos.X), int32(pos.Y), r, rl.NewColor(255, 120, 40, 110))
+	}
+
+	// Target-direction line along ai.desired. Reach it out to the firing ring so the
+	// two overlays read together; fall back to a fixed length for an unarmed ship.
+	length := maxRange
+	if length == 0 {
+		length = 700
+	}
+	nx := float32(math.Sin(float64(ai.desired)))
+	ny := -float32(math.Cos(float64(ai.desired)))
+	end := rl.NewVector2(pos.X+nx*length, pos.Y+ny*length)
+	rl.DrawLineEx(pos, end, 4, rl.NewColor(80, 200, 255, 230))
+	rl.DrawCircleV(end, 8, rl.NewColor(80, 200, 255, 230))
 }
 
 // avoidHeading blends repulsion from nearby asteroids and the player into the unit
@@ -221,7 +272,7 @@ const (
 	enemySpawnInterval = 30
 )
 
-func SpawnEnemy(target *Ship, asteroids []*Asteroid) (*Ship, Controller) {
+func SpawnEnemy(target *Ship, asteroids []*Asteroid) (*Ship, *EnemyAI) {
 	angle := rand.Float64() * 2 * math.Pi
 	pos := rl.NewVector2(
 		target.Position.X+float32(math.Cos(angle))*enemySpawnRadius,

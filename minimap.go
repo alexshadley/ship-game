@@ -33,6 +33,8 @@ func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship, projectiles
 	rl.DrawCircleV(center, minimapRadius, rl.NewColor(0, 0, 0, 160))
 	rl.DrawCircleLines(int32(center.X), int32(center.Y), minimapRadius, rl.NewColor(255, 255, 255, 120))
 
+	drawMinimapBounds(center, ship.Position)
+
 	for _, l := range looseParts {
 		blip := rl.NewVector2(
 			center.X+(l.Position.X-ship.Position.X)*minimapScale,
@@ -100,6 +102,31 @@ func DrawMinimap(ship *Ship, asteroids []*Asteroid, enemies []*Ship, projectiles
 		if dist(blip, center) <= minimapRadius {
 			rl.DrawCircleV(blip, 2, rl.Orange)
 		}
+	}
+}
+
+// drawMinimapBounds dots the square world boundary (see worldBound) onto the
+// minimap, clipped to its circular frame, so the edge of the play area shows up
+// as the ship nears it. Points are sampled along the boundary's perimeter and each
+// is dropped if it falls outside the radar disc — at minimapScale the full field
+// is larger than the radar, so only the nearest wall(s) are ever visible.
+func drawMinimapBounds(center, shipPos rl.Vector2) {
+	const step = 100 // world units between sampled boundary dots
+	plot := func(x, y float32) {
+		blip := rl.NewVector2(
+			center.X+(x-shipPos.X)*minimapScale,
+			center.Y+(y-shipPos.Y)*minimapScale,
+		)
+		if dist(blip, center) > minimapRadius {
+			return
+		}
+		rl.DrawCircleV(blip, 1, worldBoundColor)
+	}
+	for d := float32(-worldBound); d <= worldBound; d += step {
+		plot(d, -worldBound) // top edge
+		plot(d, worldBound)  // bottom edge
+		plot(-worldBound, d) // left edge
+		plot(worldBound, d)  // right edge
 	}
 }
 
