@@ -405,10 +405,18 @@ func (d *Designer) shopPanel() {
 		empty = false
 		rl.DrawRectangle(24, int32(y+3), 14, 14, partSpecs[t].color)
 		rl.DrawText(fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t]), 46, int32(y), 20, uiText)
-		y += 28
+		// Sell one back for half its catalog value, crediting money. On its own row
+		// so long part names never collide with the button.
+		sellBtn := rl.NewRectangle(46, y+24, 120, 28)
+		if uiButtonRect(sellBtn, fmt.Sprintf("Sell 1  ($%d)", sellPrice(t)), 16, false) {
+			if d.shop.sell(t) {
+				d.setStatus(fmt.Sprintf("Sold %s for $%d", t.String(), sellPrice(t)), rl.Lime)
+			}
+		}
+		y += 60
 	}
 	if empty {
-		rl.DrawText("(empty - buy some parts)", 24, int32(y), 18, uiTextDim)
+		rl.DrawText("(empty)", 24, int32(y), 18, uiTextDim)
 	}
 }
 
@@ -493,8 +501,14 @@ func (d *Designer) rightPanel(exit *bool) {
 	} else {
 		embarkBtn := rl.NewRectangle(x, windowHeight-124, w, 44)
 		if uiButtonRect(embarkBtn, "EMBARK  ▶  Next Round", 22, true) {
-			d.shop.embark = true
-			*exit = true
+			// Everything must be fitted to the ship or sold first — you can't set out
+			// carrying loose parts in inventory.
+			if n := d.shop.inventoryCount(); n > 0 {
+				d.setStatus("Fit or sell your inventory before embarking", rl.Red)
+			} else {
+				d.shop.embark = true
+				*exit = true
+			}
 		}
 	}
 	if d.status != "" {
