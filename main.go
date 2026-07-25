@@ -21,10 +21,11 @@ const (
 	cameraFollowSpeed = 20.0
 
 	// While piloting, the scroll wheel adjusts the zoom between these bounds.
-	// pilotZoomMin frames a wide swath of the battlefield; pilotZoomMax keeps the
-	// view from closing in tighter than the spacewalk framing.
-	pilotZoomMin  = 0.12
-	pilotZoomMax  = 0.6
+	// pilotZoomMin frames the widest swath of the battlefield (most zoomed out);
+	// pilotZoomMax matches the starting pilotingZoom, so the default view is the
+	// most zoomed-in you can get and the wheel only pulls the camera back out.
+	pilotZoomMin  = 0.1
+	pilotZoomMax  = pilotingZoom
 	pilotZoomStep = 0.04
 )
 
@@ -283,7 +284,7 @@ func main() {
 					hint = "F: re-enter ship"
 				}
 			}
-			DrawMinimap(ship, asteroids, enemies, physics.LooseParts(), minimapPlayer)
+			DrawMinimap(ship, asteroids, enemies, projectiles, physics.LooseParts(), minimapPlayer)
 			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
 			// While out on a walk, show the astronaut's health as a top-left readout.
 			if spacewalking {
