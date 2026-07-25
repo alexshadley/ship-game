@@ -146,11 +146,86 @@ func (c GridCoord) neighbors() [4]GridCoord {
 	}
 }
 
+const maxPartLevel = 5
+
+func (t PartType) isLeveled() bool {
+	return t.isWeapon() || t == PartShield
+}
+
+func clampPartLevel(level int) int {
+	if level < 1 {
+		return 1
+	}
+	if level > maxPartLevel {
+		return maxPartLevel
+	}
+	return level
+}
+
+type statMults struct {
+	damage   float32
+	fireRate float32
+	capacity float32
+	regen    float32
+}
+
+var levelMults = [maxPartLevel + 1]statMults{
+	1: {damage: 1.00, fireRate: 1.00, capacity: 1.00, regen: 1.00},
+	2: {damage: 1.30, fireRate: 1.15, capacity: 1.40, regen: 1.25},
+	3: {damage: 1.70, fireRate: 1.30, capacity: 1.90, regen: 1.55},
+	4: {damage: 2.20, fireRate: 1.50, capacity: 2.50, regen: 1.90},
+	5: {damage: 2.90, fireRate: 1.75, capacity: 3.25, regen: 2.35},
+}
+
+type PartModifier int
+
+const (
+	ModifierTurbo PartModifier = iota
+	ModifierSluggish
+	ModifierPowerful
+
+	partModifierCount
+)
+
+type modifierSpec struct {
+	name  string
+	desc  string
+	mults statMults
+}
+
+var modifierSpecs = [partModifierCount]modifierSpec{
+	ModifierTurbo:    {"Turbo", "+35% fire rate / regen", statMults{damage: 1, fireRate: 1.35, capacity: 1, regen: 1.35}},
+	ModifierSluggish: {"Sluggish", "-30% fire rate / regen", statMults{damage: 1, fireRate: 0.7, capacity: 1, regen: 0.7}},
+	ModifierPowerful: {"Powerful", "+30% damage / capacity", statMults{damage: 1.3, fireRate: 1, capacity: 1.3, regen: 1}},
+}
+
+func (m PartModifier) valid() bool {
+	return m >= 0 && m < partModifierCount
+}
+
+func (m PartModifier) String() string {
+	if !m.valid() {
+		return "Unknown"
+	}
+	return modifierSpecs[m].name
+}
+
+func partModifierFromString(s string) (PartModifier, bool) {
+	for m := PartModifier(0); m < partModifierCount; m++ {
+		if m.String() == s {
+			return m, true
+		}
+	}
+	return 0, false
+}
+
 type Part struct {
-	Type   PartType
-	Facing Facing
-	Health float32
-	Weight float32
+	Type      PartType
+	Facing    Facing
+	Health    float32
+	Weight    float32
+	Level     int
+	Modifiers []PartModifier
 	// FireCooldown is the per-PDC countdown to its next shot, so each PDC
 	// fires on its own cadence regardless of the ship's other PDCs.
 	FireCooldown float32
@@ -164,6 +239,37 @@ type Part struct {
 type shieldImpact struct {
 	angle float32
 	timer float32
+}
+
+func (p *Part) combatMults() statMults {
+	m := levelMults[clampPartLevel(p.Level)]
+	for _, mod := range p.Modifiers {
+		if !mod.valid() {
+			continue
+		}
+		s := modifierSpecs[mod].mults
+		m.damage *= s.damage
+		m.fireRate *= s.fireRate
+		m.capacity *= s.capacity
+		m.regen *= s.regen
+	}
+	return m
+}
+
+func (p *Part) weaponDamage() float32 {
+	return p.Type.baseDamage() * p.combatMults().damage
+}
+
+func (p *Part) weaponFireInterval() float32 {
+	return p.Type.fireInterval() / p.combatMults().fireRate
+}
+
+func (p *Part) shieldMax() float32 {
+	return shieldMaxHealth * p.combatMults().capacity
+}
+
+func (p *Part) shieldRegen() float32 {
+	return shieldRegenRate * p.combatMults().regen
 }
 
 func (p *Part) shieldActive() bool {
@@ -201,7 +307,7 @@ func (p *Part) updateShield(dt float32) {
 		p.ShieldDownTimer -= dt
 		if p.ShieldDownTimer <= 0 {
 			p.ShieldDownTimer = 0
-			p.ShieldHealth = shieldMaxHealth * shieldRestoreFrac
+			p.ShieldHealth = p.shieldMax() * shieldRestoreFrac
 			p.ShieldRegenDelay = shieldRegenDelay
 		}
 		return
@@ -210,10 +316,10 @@ func (p *Part) updateShield(dt float32) {
 		p.ShieldRegenDelay -= dt
 		return
 	}
-	if p.ShieldHealth < shieldMaxHealth {
-		p.ShieldHealth += shieldRegenRate * dt
-		if p.ShieldHealth > shieldMaxHealth {
-			p.ShieldHealth = shieldMaxHealth
+	if max := p.shieldMax(); p.ShieldHealth < max {
+		p.ShieldHealth += p.shieldRegen() * dt
+		if p.ShieldHealth > max {
+			p.ShieldHealth = max
 		}
 	}
 }
@@ -256,15 +362,20 @@ const (
 )
 
 func NewPart(t PartType, facing Facing) *Part {
+	return NewLeveledPart(t, facing, 1)
+}
+
+func NewLeveledPart(t PartType, facing Facing, level int) *Part {
 	spec := partSpecs[t]
 	p := &Part{
 		Type:   t,
 		Facing: facing,
 		Health: spec.health,
 		Weight: spec.weight,
+		Level:  clampPartLevel(level),
 	}
 	if t == PartShield {
-		p.ShieldHealth = shieldMaxHealth
+		p.ShieldHealth = p.shieldMax()
 	}
 	return p
 }

@@ -34,7 +34,8 @@
       "x": 1,
       "y": 0,
       "type": "PDC",
-      "facing": "Up"
+      "facing": "Up",
+      "level": 2
     },
     {
       "x": 2,

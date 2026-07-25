@@ -19,10 +19,12 @@ const shipsDir = "ships"
 // are stored by their human-readable String() names so the files stay legible and
 // hand-editable.
 type partJSON struct {
-	X      int    `json:"x"`
-	Y      int    `json:"y"`
-	Type   string `json:"type"`
-	Facing string `json:"facing"`
+	X         int      `json:"x"`
+	Y         int      `json:"y"`
+	Type      string   `json:"type"`
+	Facing    string   `json:"facing"`
+	Level     int      `json:"level,omitempty"`
+	Modifiers []string `json:"modifiers,omitempty"`
 }
 
 type shipDesign struct {
@@ -52,12 +54,21 @@ func facingFromString(s string) (Facing, bool) {
 func ShipToDesign(s *Ship) shipDesign {
 	parts := make([]partJSON, 0, len(s.Parts))
 	for c, p := range s.Parts {
-		parts = append(parts, partJSON{
+		pj := partJSON{
 			X:      c.X,
 			Y:      c.Y,
 			Type:   p.Type.String(),
 			Facing: p.Facing.String(),
-		})
+		}
+		if p.Type.isLeveled() {
+			pj.Level = clampPartLevel(p.Level)
+			for _, m := range p.Modifiers {
+				if m.valid() {
+					pj.Modifiers = append(pj.Modifiers, m.String())
+				}
+			}
+		}
+		parts = append(parts, pj)
 	}
 	// Stable order so saved files diff cleanly regardless of map iteration order.
 	sort.Slice(parts, func(i, j int) bool {
@@ -82,7 +93,16 @@ func DesignToShip(d shipDesign, pos rl.Vector2) *Ship {
 		if !ok {
 			f = FacingUp
 		}
-		s.AddPart(GridCoord{X: pj.X, Y: pj.Y}, NewPart(t, f))
+		part := NewLeveledPart(t, f, pj.Level)
+		for _, name := range pj.Modifiers {
+			if m, ok := partModifierFromString(name); ok {
+				part.Modifiers = append(part.Modifiers, m)
+			}
+		}
+		if part.Type == PartShield {
+			part.ShieldHealth = part.shieldMax()
+		}
+		s.AddPart(GridCoord{X: pj.X, Y: pj.Y}, part)
 	}
 	return s
 }
