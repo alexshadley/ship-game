@@ -101,6 +101,7 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 		Thrust:                 thrust,
 		Turn:                   turn,
 		Fire:                   true,
+		FireMissiles:           true,
 		FireTarget:             rl.NewVector2(dx, dy),
 		EnforceEngagementRange: true,
 	}

@@ -246,7 +246,13 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 		}
 
 		part.FireCooldown -= dt
-		if !controls.Fire || part.FireCooldown > 0 {
+		// PDCs fire on the main trigger; missile launchers have their own trigger
+		// so the player can loose the two weapon types independently.
+		triggered := controls.Fire
+		if part.Type == PartMissileLauncher {
+			triggered = controls.FireMissiles
+		}
+		if !triggered || part.FireCooldown > 0 {
 			continue
 		}
 
