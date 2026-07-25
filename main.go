@@ -19,16 +19,17 @@ const (
 	windowWidth  = 1920
 	windowHeight = 1080
 
-	pilotingZoom      = 0.15
+	pilotingZoom      = 0.25
 	spacewalkZoom     = 0.7
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
 
 	// While piloting, the scroll wheel and the -/= keys adjust the zoom between
-	// these bounds. The default (pilotingZoom) sits between them so the view can be
-	// pulled both further out (toward pilotZoomMin) and in (toward pilotZoomMax).
-	pilotZoomMin  = 0.05
-	pilotZoomMax  = 0.4
+	// these bounds. pilotZoomMin frames the widest swath of the battlefield (most
+	// zoomed out); pilotZoomMax matches the starting pilotingZoom, so the default
+	// view is the most zoomed-in you can get and the controls only pull back out.
+	pilotZoomMin  = 0.1
+	pilotZoomMax  = pilotingZoom
 	pilotZoomStep = 0.01
 	// Per-second zoom rate while a zoom key is held (trackpad users have no wheel).
 	pilotZoomKeyRate = 0.25
