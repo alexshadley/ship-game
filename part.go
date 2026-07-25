@@ -39,6 +39,12 @@ const (
 	// heavy damage. Firing kicks the shooter back a little and shoves whatever it
 	// hits a lot more (see FireWeapons and Physics.fireRailgun).
 	PartRailgun
+	// PartRattlesnakeMissile fires the same destructible, area-blast missile as a
+	// PartMissileLauncher, but the round ejects out the mount's right side and
+	// floats there under a small thruster before its booster lights and drives it
+	// toward the fire target — a curved, flanking shot (see FireWeapons and the
+	// drift-missile branch of Projectile.Update).
+	PartRattlesnakeMissile
 	// PartAutoTurret is an automatic weapon: rather than aiming at a manual fire
 	// target it slews a full circle and tracks the nearest enemy on its own,
 	// spitting PDC-style rounds while the player's auto-turret toggle is armed (see
@@ -86,6 +92,8 @@ func (t PartType) String() string {
 		return "Shield"
 	case PartRailgun:
 		return "Railgun"
+	case PartRattlesnakeMissile:
+		return "Rattlesnake Missile"
 	case PartAutoTurret:
 		return "Auto-Turret"
 	default:
@@ -363,18 +371,19 @@ var partSpecs = map[PartType]partSpec{
 	PartCockpit: {health: 75, weight: partWeight, color: rl.SkyBlue},
 	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray},
 	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
-	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
+	PartArmor: {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
 	// Gold is a block-grade cell at twice a normal part's weight; it's valuable cargo.
 	PartGold:   {health: 150, weight: 2 * partWeight, color: rl.Gold},
 	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
 
-	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple},
-	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen},
-	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
-	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon},
-	PartShield:          {health: 75, weight: partWeight, color: rl.Blue},
-	PartRailgun:         {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
-	PartAutoTurret:      {health: 75, weight: partWeight, color: rl.NewColor(80, 200, 160, 255)},
+	PartControlThruster:    {health: 150, weight: partWeight, color: rl.Purple},
+	PartPDC:                {health: 75, weight: partWeight, color: rl.DarkGreen},
+	PartSlowPDC:            {health: 75, weight: partWeight, color: rl.DarkBrown},
+	PartMissileLauncher:    {health: 75, weight: partWeight, color: rl.Maroon},
+	PartShield:             {health: 75, weight: partWeight, color: rl.Blue},
+	PartRailgun:            {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
+	PartRattlesnakeMissile: {health: 75, weight: partWeight, color: rl.NewColor(150, 100, 55, 255)},
+	PartAutoTurret:         {health: 75, weight: partWeight, color: rl.NewColor(80, 200, 160, 255)},
 }
 
 const (

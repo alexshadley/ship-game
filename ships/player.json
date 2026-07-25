@@ -55,6 +55,12 @@
       "level": 2
     },
     {
+      "x": 2,
+      "y": -1,
+      "type": "Rattlesnake Missile",
+      "facing": "Up"
+    },
+    {
       "x": -2,
       "y": 0,
       "type": "Control Thruster",
