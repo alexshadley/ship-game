@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"math/rand"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -17,6 +18,11 @@ const (
 	// its mount facing — a total arc a bit under a half circle. A mount whose
 	// fire target falls outside the arc holds its fire.
 	pdcHalfArc = 0.44 * math.Pi
+
+	// pdcSpread scatters each PDC round: its fired heading is jittered by up to
+	// pdcSpread radians to either side of the aim so a stream of fire fans out
+	// into a cone rather than a laser-straight line.
+	pdcSpread = 0.03 * math.Pi
 
 	// PDC rounds are short-ranged. Drag bleeds their speed off exponentially
 	// (pdcProjectileDrag per second) and they despawn after
@@ -324,11 +330,16 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 			shots = append(shots, NewMissile(s, pos, vel, aim))
 			continue
 		}
+		// Scatter each round within pdcSpread of the aim so sustained fire fans
+		// into a cone. The arc check above used the true aim; only the fired
+		// round is jittered.
+		fired := aim + (rand.Float32()*2-1)*pdcSpread
+		fdx, fdy := float32(math.Sin(float64(fired))), float32(-math.Cos(float64(fired)))
 		vel := rl.NewVector2(
-			s.Velocity.X+dirX*pdcMuzzleSpeed,
-			s.Velocity.Y+dirY*pdcMuzzleSpeed,
+			s.Velocity.X+fdx*pdcMuzzleSpeed,
+			s.Velocity.Y+fdy*pdcMuzzleSpeed,
 		)
-		shots = append(shots, NewProjectile(s, pos, vel, aim))
+		shots = append(shots, NewProjectile(s, pos, vel, fired))
 	}
 	return shots
 }
