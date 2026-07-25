@@ -11,9 +11,9 @@ const (
 	// part: measured from the player to the nearest edge of the target cell, so a
 	// part has to be within a few blocks to be worked on.
 	repairRange = cellSize * 3
-	// repairRate is how much health a held beam restores per second. At 25/s a
-	// battered block (max 50) mends in about two seconds.
-	repairRate = 25.0
+	// repairRate is how much health a held beam restores per second. At 50/s a
+	// battered block (max 50) mends in about one second.
+	repairRate = 50.0
 )
 
 // repairBeamColor is the healing green the repair beam and its sparks are drawn in.
