@@ -393,6 +393,27 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 }
 
 func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool {
+	for _, sb := range p.ships {
+		if sb.ship == pr.Owner {
+			continue
+		}
+		if shield, center := sb.ship.shieldCovering(pr.Position); shield != nil {
+			angle := float32(math.Atan2(float64(pr.Position.Y-center.Y), float64(pr.Position.X-center.X)) * 180 / math.Pi)
+			shield.addShieldImpact(angle)
+			if !p.playerInvincible(sb) {
+				amount := pr.Damage()
+				if pr.Kind == projectileMissile {
+					amount = missileBlastDamage
+				}
+				shield.damageShield(amount)
+			}
+			if pr.Kind == projectileMissile {
+				particles.SpawnExplosion(pr.Position, missileBlastRadius)
+			}
+			return true
+		}
+	}
+
 	if pr.Kind == projectileMissile {
 		return p.missileHit(pr, particles)
 	}
@@ -948,6 +969,10 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 			continue
 		}
 		survivors = append(survivors, sb)
+
+		for _, part := range sb.ship.Parts {
+			part.updateShield(float32(dt))
+		}
 
 		emitExhaust(sb.ship, sb.controls, particles)
 

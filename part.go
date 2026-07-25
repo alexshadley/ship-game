@@ -30,6 +30,7 @@ const (
 	// down in flight (it has health), and detonates for area damage that shoves
 	// ships away from the blast (see FireWeapons and Physics.missileBlast).
 	PartMissileLauncher
+	PartShield
 	// PartRailgun is a heavy hitscan weapon: it fires within a very narrow arc on a
 	// slow reload, striking instantly along a straight line (no projectile) for
 	// heavy damage. Firing kicks the shooter back a little and shoves whatever it
@@ -71,6 +72,8 @@ func (t PartType) String() string {
 		return "Slow PDC"
 	case PartMissileLauncher:
 		return "Missile Launcher"
+	case PartShield:
+		return "Shield"
 	case PartRailgun:
 		return "Railgun"
 	default:
@@ -151,6 +154,68 @@ type Part struct {
 	// FireCooldown is the per-PDC countdown to its next shot, so each PDC
 	// fires on its own cadence regardless of the ship's other PDCs.
 	FireCooldown float32
+
+	ShieldHealth     float32
+	ShieldDownTimer  float32
+	ShieldRegenDelay float32
+	ShieldImpacts    []shieldImpact
+}
+
+type shieldImpact struct {
+	angle float32
+	timer float32
+}
+
+func (p *Part) shieldActive() bool {
+	return p.Type == PartShield && p.ShieldDownTimer <= 0 && p.ShieldHealth > 0
+}
+
+func (p *Part) damageShield(amount float32) {
+	p.ShieldHealth -= amount
+	p.ShieldRegenDelay = shieldRegenDelay
+	if p.ShieldHealth <= 0 {
+		p.ShieldHealth = 0
+		p.ShieldDownTimer = shieldDownDuration
+	}
+}
+
+func (p *Part) addShieldImpact(angleDeg float32) {
+	p.ShieldImpacts = append(p.ShieldImpacts, shieldImpact{angle: angleDeg, timer: shieldFlashDuration})
+}
+
+func (p *Part) updateShield(dt float32) {
+	if p.Type != PartShield {
+		return
+	}
+	if len(p.ShieldImpacts) > 0 {
+		kept := p.ShieldImpacts[:0]
+		for _, im := range p.ShieldImpacts {
+			im.timer -= dt
+			if im.timer > 0 {
+				kept = append(kept, im)
+			}
+		}
+		p.ShieldImpacts = kept
+	}
+	if p.ShieldDownTimer > 0 {
+		p.ShieldDownTimer -= dt
+		if p.ShieldDownTimer <= 0 {
+			p.ShieldDownTimer = 0
+			p.ShieldHealth = shieldMaxHealth * shieldRestoreFrac
+			p.ShieldRegenDelay = shieldRegenDelay
+		}
+		return
+	}
+	if p.ShieldRegenDelay > 0 {
+		p.ShieldRegenDelay -= dt
+		return
+	}
+	if p.ShieldHealth < shieldMaxHealth {
+		p.ShieldHealth += shieldRegenRate * dt
+		if p.ShieldHealth > shieldMaxHealth {
+			p.ShieldHealth = shieldMaxHealth
+		}
+	}
 }
 
 type partSpec struct {
@@ -176,15 +241,30 @@ var partSpecs = map[PartType]partSpec{
 	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen},
 	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
 	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon},
+	PartShield:          {health: 75, weight: partWeight, color: rl.Blue},
 	PartRailgun:         {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
 }
 
+const (
+	shieldMaxHealth     float32 = 50
+	shieldRadius                = 2 * cellSize
+	shieldRestoreFrac   float32 = 0.25
+	shieldDownDuration  float32 = 6
+	shieldRegenDelay    float32 = 3
+	shieldRegenRate     float32 = 6
+	shieldFlashDuration float32 = 0.35
+)
+
 func NewPart(t PartType, facing Facing) *Part {
 	spec := partSpecs[t]
-	return &Part{
+	p := &Part{
 		Type:   t,
 		Facing: facing,
 		Health: spec.health,
 		Weight: spec.weight,
 	}
+	if t == PartShield {
+		p.ShieldHealth = shieldMaxHealth
+	}
+	return p
 }

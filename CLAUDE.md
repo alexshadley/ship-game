@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Guidance for AI agents working in this repository.
 
@@ -18,10 +18,7 @@ All source is flat in the repo root, `package main`: `main.go` (window + game lo
 ## Working here
 
 - **Tests:** Don't write tests unless asked.
-- **Comments:** Don't write comments unless asked. Keep comments miserly — write one
-  only when the code does something counterintuitive or unexpected (a sign flip, a
-  library quirk, a constraint, something that would otherwise read like a bug). Never
-  comment what the code plainly says.
+- **Comments:** Never write comments unless asked.
 
 ## Conventions
 

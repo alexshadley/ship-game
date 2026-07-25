@@ -2,6 +2,12 @@
   "parts": [
     {
       "x": 0,
+      "y": -4,
+      "type": "Shield",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
       "y": -3,
       "type": "Block",
       "facing": "Up"
