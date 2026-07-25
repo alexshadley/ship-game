@@ -217,7 +217,7 @@ func clamp(v, lo, hi float32) float32 {
 const (
 	// enemySpawnRadius sits well beyond the piloting view's visible corner so
 	// enemies always arrive from offscreen.
-	enemySpawnRadius   = 4800
+	enemySpawnRadius   = 2400
 	enemySpawnInterval = 30
 )
 
