@@ -122,7 +122,7 @@ func main() {
 	// The player's wallet and the parts they own. Both are shared with the shop
 	// (by pointer / by reference), so buying and fitting parts there carries back
 	// into the running game. Start with a little seed money and a few basic parts.
-	money := 500
+	money := 0
 	inventory := map[PartType]int{
 		PartBlock:  6,
 		PartEngine: 2,
@@ -353,10 +353,11 @@ func main() {
 				}
 			}
 			DrawMinimap(ship, asteroids, enemies, projectiles, physics.LooseParts(), minimapPlayer)
-			// Player's money, top-right corner.
+			// Player's money, top-right, tucked just below the stage-timer bar so the
+			// two don't overlap.
 			moneyText := fmt.Sprintf("$%d", money)
 			mw := rl.MeasureText(moneyText, 10)
-			rl.DrawText(moneyText, gameWidth-mw-6, 6, 10, rl.Gold)
+			rl.DrawText(moneyText, gameWidth-mw-6, 16, 10, rl.Gold)
 			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
 			// While out on a walk, show the astronaut's health as a top-left readout.
 			if spacewalking {
