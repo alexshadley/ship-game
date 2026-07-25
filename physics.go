@@ -1147,6 +1147,64 @@ func (p *Physics) destroyShip(sb *shipBody) {
 	sb.thrusters = 0
 }
 
+// RebuildShipBody rebuilds ship's rigid body from its current Parts, preserving
+// world position, orientation, and velocity. The shop edits the live player ship's
+// Parts map directly (adding and removing parts), so on returning to the game its
+// collision shapes, mass, and engine/thruster counts must be regenerated to match.
+func (p *Physics) RebuildShipBody(ship *Ship) {
+	for _, sb := range p.ships {
+		if sb.ship != ship {
+			continue
+		}
+		old := sb.body
+		pos := old.Position()
+		angle := old.Angle()
+		vel := old.Velocity()
+		avel := old.AngularVelocity()
+
+		for part, shape := range sb.shipShapes {
+			p.space.RemoveShape(shape)
+			delete(sb.shipShapes, part)
+		}
+		p.space.RemoveBody(old)
+
+		body := cp.NewBody(1, 1)
+		body.SetPosition(pos)
+		body.SetAngle(angle)
+		p.space.AddBody(body)
+		for c, part := range ship.Parts {
+			sb.shipShapes[part] = p.addShipShape(body, c, part)
+		}
+		body.AccumulateMassFromShapes()
+		body.SetVelocityVector(vel)
+		body.SetAngularVelocity(avel)
+
+		sb.body = body
+		p.recomputeShipBody(sb)
+		return
+	}
+}
+
+// ClearEnemyShips removes every ship except the player from the simulation,
+// dropping their bodies and shapes from the space. Used to wipe the battlefield
+// between rounds so a fresh round starts clean. Loose parts are left alone.
+func (p *Physics) ClearEnemyShips() {
+	survivors := p.ships[:0]
+	for _, sb := range p.ships {
+		if sb.ship == p.playerShip {
+			survivors = append(survivors, sb)
+			continue
+		}
+		for part, shape := range sb.shipShapes {
+			p.space.RemoveShape(shape)
+			delete(sb.shipShapes, part)
+		}
+		p.space.RemoveBody(sb.body)
+		sb.ship.Destroyed = true
+	}
+	p.ships = survivors
+}
+
 // recomputeShipBody rebuilds the body's mass, moment, and center of gravity from
 // its current shapes after parts are added or lost, and refreshes the cached
 // engine/thruster counts. AccumulateMassFromShapes re-derives the centroid and

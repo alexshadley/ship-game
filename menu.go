@@ -10,6 +10,7 @@ const (
 	MenuNone MenuAction = iota
 	MenuResume
 	MenuOpenDesigner
+	MenuOpenShop
 	MenuToggleGodMode
 	MenuToggleAIDebug
 	MenuQuit
@@ -35,6 +36,7 @@ func (m *Menu) items() []menuItem {
 	return []menuItem{
 		{"Resume", MenuResume},
 		{"Ship Designer", MenuOpenDesigner},
+		{"Shop", MenuOpenShop},
 		{"God Mode: " + onOff(m.GodMode), MenuToggleGodMode},
 		{"AI Debug: " + onOff(m.AIDebug), MenuToggleAIDebug},
 		{"Quit", MenuQuit},
