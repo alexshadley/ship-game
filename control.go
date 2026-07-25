@@ -13,6 +13,11 @@ type Controls struct {
 	// cockpit.
 	Fire       bool
 	FireTarget rl.Vector2
+	// EnforceEngagementRange gates each weapon mount's fire on that weapon's
+	// engagement range (see PartType.engagementRange). The AI sets it so enemies
+	// hold the trigger continuously but only open up once a shot can reach; the
+	// player fires freely.
+	EnforceEngagementRange bool
 }
 
 type Controller interface {
