@@ -72,6 +72,14 @@ const (
 	railgunRecoilImpulse   = 4000.0
 	railgunImpactImpulse   = 22000.0
 	railgunBeamDuration    = 0.12
+	// railgunWarmup is how long (seconds) a railgun mount spends charging before it
+	// looses its shot. While it charges its aim is locked and two red telegraph
+	// lines, parallel to the shot, slide together from either side; the shot fires
+	// the instant they touch on the beam line.
+	railgunWarmup = 1.0
+	// railgunTelegraphSpread is how far to each side of the locked beam the two
+	// warm-up lines start (world px) before sliding in to meet it.
+	railgunTelegraphSpread = cellSize * 1.5
 )
 
 var (
@@ -260,6 +268,17 @@ type RailgunShot struct {
 	Damage float32
 }
 
+// RailgunCharge is the telegraph for a railgun mount still warming up this frame:
+// the locked shot runs from Origin along the unit vector Dir for railgunRange world
+// px, and Progress (0..1) is how far along the railgunWarmup the mount is. It is
+// drawn as two red lines parallel to Dir, one on each side, sliding together until
+// they touch on the beam line exactly when the shot fires (see DrawBeams).
+type RailgunCharge struct {
+	Origin   rl.Vector2
+	Dir      rl.Vector2
+	Progress float32
+}
+
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
 func (t PartType) isWeapon() bool {
 	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun
@@ -327,9 +346,10 @@ func (t PartType) engagementRange() float32 {
 // target is outside its arc holds fire until the target swings back in. PDCs
 // spit fast, short-ranged rounds; missile launchers loose a slow, accelerating,
 // destructible missile.
-func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []RailgunShot) {
+func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []RailgunShot, []RailgunCharge) {
 	var shots []*Projectile
 	var rails []RailgunShot
+	var charges []RailgunCharge
 	for c, part := range s.Parts {
 		if !part.Type.isWeapon() {
 			continue
@@ -347,8 +367,38 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			fireTarget = controls.MissileTarget
 		}
 		if !triggered || part.FireCooldown > 0 {
+			// A railgun that loses its trigger (or is still on cooldown) abandons any
+			// warm-up in progress and starts over next time it lines up.
+			part.RailgunCharge = 0
 			continue
 		}
+
+		// A railgun already warming up has locked its aim: it commits to the
+		// direction captured when the charge began and ignores any new target until
+		// it fires, so the shot can't be re-aimed mid-charge. The muzzle still
+		// follows the mount cell as the ship moves.
+		if part.Type == PartRailgun && part.RailgunCharge > 0 {
+			part.RailgunCharge += dt
+			center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
+			// The bearing is locked relative to the ship, so re-derive the world
+			// direction from the hull's current facing — a spin swings the shot.
+			worldAim := s.Direction + part.RailgunAim
+			dir := rl.NewVector2(float32(math.Sin(float64(worldAim))), float32(-math.Cos(float64(worldAim))))
+			pos := rl.NewVector2(center.X+dir.X*cellSize*0.5, center.Y+dir.Y*cellSize*0.5)
+			if part.RailgunCharge < railgunWarmup {
+				charges = append(charges, RailgunCharge{
+					Origin:   pos,
+					Dir:      dir,
+					Progress: part.RailgunCharge / railgunWarmup,
+				})
+				continue
+			}
+			part.RailgunCharge = 0
+			part.FireCooldown = part.weaponFireInterval()
+			rails = append(rails, RailgunShot{Origin: pos, Dir: dir, Owner: s, Damage: part.weaponDamage()})
+			continue
+		}
+
 		target := rl.NewVector2(
 			s.Position.X+fireTarget.X,
 			s.Position.Y+fireTarget.Y,
@@ -361,29 +411,40 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		dy := target.Y - center.Y
 		dist := float32(math.Hypot(float64(dx), float64(dy)))
 		if dist == 0 {
+			part.RailgunCharge = 0
 			continue
 		}
 		// The AI holds its trigger continuously; each mount only opens up once the
 		// target is within its own weapon's engagement range. The player fires
 		// without this gate.
 		if controls.EnforceEngagementRange && dist > part.Type.engagementRange() {
+			part.RailgunCharge = 0
 			continue
 		}
 		aim := heading(dx, dy)
 		mount := s.Direction + part.Facing.angle()
 		if math.Abs(float64(angleDiff(aim, mount))) > float64(part.Type.halfArc()) {
+			part.RailgunCharge = 0
 			continue
 		}
-		part.FireCooldown = part.weaponFireInterval()
 
 		dirX, dirY := dx/dist, dy/dist
 		pos := rl.NewVector2(center.X+dirX*cellSize*0.5, center.Y+dirY*cellSize*0.5)
 		if part.Type == PartRailgun {
-			// A railgun strikes instantly along the aim; the hit is resolved in the
-			// physics layer, which has the rigid bodies for damage and recoil.
-			rails = append(rails, RailgunShot{Origin: pos, Dir: rl.NewVector2(dirX, dirY), Owner: s, Damage: part.weaponDamage()})
+			// A railgun doesn't fire the instant it's ready: it locks its aim on the
+			// current target and warms up for railgunWarmup, telegraphing the shot. The
+			// locked aim is then honored by the "already warming up" block above until
+			// the beam looses; the shot itself fires from there.
+			part.RailgunAim = aim - s.Direction
+			part.RailgunCharge += dt
+			charges = append(charges, RailgunCharge{
+				Origin:   pos,
+				Dir:      rl.NewVector2(dirX, dirY),
+				Progress: part.RailgunCharge / railgunWarmup,
+			})
 			continue
 		}
+		part.FireCooldown = part.weaponFireInterval()
 		if part.Type == PartMissileLauncher {
 			// A missile is self-propelled: it leaves the tube slowly along the aim
 			// (not inheriting the ship's velocity) and accelerates from there.
@@ -402,5 +463,5 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		)
 		shots = append(shots, NewProjectile(s, pos, vel, fired, part.weaponDamage()))
 	}
-	return shots, rails
+	return shots, rails, charges
 }
