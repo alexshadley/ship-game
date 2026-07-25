@@ -368,6 +368,47 @@ func (s *Ship) Draw() {
 	}
 }
 
+// pdcArcRadius is how far each PDC's firing-arc overlay wedge reaches from its
+// mount, in world pixels — a few cells, enough to read clearly over the ship.
+const pdcArcRadius = cellSize * 4
+
+// DrawFiringArcs overlays every PDC's firing arc on the ship. aim is the world
+// point the player is aiming at (the cursor). Each mount whose aim at that point
+// falls within its arc — the mounts that would actually fire — is drawn lit; the
+// rest are dim. This mirrors the bearing test in FirePDCs.
+func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
+	for c, part := range s.Parts {
+		if part.Type != PartPDC && part.Type != PartSlowPDC {
+			continue
+		}
+
+		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
+		mount := s.Direction + part.Facing.angle()
+
+		// A mount lights up when it can bear on the cursor — the same arc check
+		// FirePDCs uses to decide whether the mount takes the shot.
+		active := false
+		if dx, dy := aim.X-center.X, aim.Y-center.Y; dx != 0 || dy != 0 {
+			active = math.Abs(float64(angleDiff(heading(dx, dy), mount))) <= pdcHalfArc
+		}
+
+		// A world heading h points along (sin h, -cos h); as a raylib sector
+		// angle (degrees, 0 = +x, increasing clockwise) that is h - 90°.
+		startDeg := (mount-pdcHalfArc)*180/math.Pi - 90
+		endDeg := (mount+pdcHalfArc)*180/math.Pi - 90
+
+		fill := rl.NewColor(120, 170, 220, 19)
+		edge := rl.NewColor(120, 170, 220, 78)
+		if active {
+			fill = rl.NewColor(255, 200, 70, 44)
+			edge = rl.NewColor(255, 205, 80, 175)
+		}
+
+		rl.DrawCircleSector(center, pdcArcRadius, startDeg, endDeg, 24, fill)
+		rl.DrawCircleSectorLines(center, pdcArcRadius, startDeg, endDeg, 24, edge)
+	}
+}
+
 // drawPart renders a single part's cell and, for parts whose facing is meaningful,
 // its facing indicator. baseAngle is the world rotation of the frame it sits in
 // (the ship's Direction, or a debris rotation for loose parts).
