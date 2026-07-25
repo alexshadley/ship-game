@@ -67,7 +67,7 @@ const (
 	railgunDamage          = 600.0
 	railgunFireInterval    = 3.5
 	railgunHalfArc         = 0.07 * math.Pi
-	railgunEngagementRange = 2600
+	railgunEngagementRange = 2700
 	railgunRange           = 4000.0
 	railgunRecoilImpulse   = 4000.0
 	railgunImpactImpulse   = 22000.0
@@ -142,7 +142,8 @@ type Projectile struct {
 	Kind  ProjectileKind
 	// Health is only meaningful for missiles: a missile shot down in flight (its
 	// health driven to zero by an enemy's rounds) is destroyed without detonating.
-	Health float32
+	Health     float32
+	BaseDamage float32
 
 	// DriftTimer and BoostTarget drive a Rattlesnake missile's two-phase flight (see
 	// NewDriftMissile). While DriftTimer > 0 the round floats sideways at its launch
@@ -158,22 +159,23 @@ type Projectile struct {
 	Acceleration float32
 }
 
-func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
+func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation, damage float32) *Projectile {
 	return &Projectile{
-		Position: pos,
-		Velocity: velocity,
-		Lifespan: pdcProjectileLifespan,
-		Rotation: rotation,
-		Size:     projectileSize,
-		Owner:    owner,
-		Kind:     projectilePDC,
+		Position:   pos,
+		Velocity:   velocity,
+		Lifespan:   pdcProjectileLifespan,
+		Rotation:   rotation,
+		Size:       projectileSize,
+		Owner:      owner,
+		Kind:       projectilePDC,
+		BaseDamage: damage,
 	}
 }
 
 // NewMissile builds a missile launched from owner: it starts slow (velocity is
 // the launch velocity along the aim) and accelerates toward a cruise speed in
 // Update, and it carries health so it can be shot down before impact.
-func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
+func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation, blastDamage float32) *Projectile {
 	return &Projectile{
 		Position:     pos,
 		Velocity:     velocity,
@@ -183,6 +185,7 @@ func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projec
 		Owner:        owner,
 		Kind:         projectileMissile,
 		Health:       missileHealth,
+		BaseDamage:   blastDamage,
 		Acceleration: missileAcceleration,
 	}
 }
@@ -191,7 +194,7 @@ func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projec
 // sideways at driftVel (out the mount's side) for rattlesnakeDriftDuration seconds, then
 // its booster lights and drives it toward boostTarget, a fixed world point. It is
 // an ordinary missile in every other respect — same health, cruise, and detonation.
-func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vector2, rotation float32) *Projectile {
+func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vector2, rotation, blastDamage float32) *Projectile {
 	return &Projectile{
 		Position:     pos,
 		Velocity:     driftVel,
@@ -201,6 +204,7 @@ func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vecto
 		Owner:        owner,
 		Kind:         projectileMissile,
 		Health:       missileHealth,
+		BaseDamage:   blastDamage,
 		DriftTimer:   rattlesnakeDriftDuration,
 		BoostTarget:  boostTarget,
 		Acceleration: rattlesnakeAcceleration,
@@ -262,16 +266,16 @@ func (p *Projectile) Expired() bool {
 }
 
 // Damage is the hit damage this round deals, scaled linearly by its speed: a
-// round leaving the muzzle deals full projectileDamage, and drag bleeds that off
+// round leaving the muzzle deals its full BaseDamage, and drag bleeds that off
 // in step with its speed until the round peters out. A round can't deal more than
-// full damage, so a fast-moving shooter's rounds still cap at projectileDamage.
+// full damage, so a fast-moving shooter's rounds still cap at BaseDamage.
 func (p *Projectile) Damage() float32 {
 	speed := math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y))
 	frac := speed / pdcMuzzleSpeed
 	if frac > 1 {
 		frac = 1
 	}
-	return projectileDamage * float32(frac)
+	return p.BaseDamage * float32(frac)
 }
 
 func (p *Projectile) Draw() {
@@ -325,6 +329,7 @@ type RailgunShot struct {
 	Origin rl.Vector2
 	Dir    rl.Vector2
 	Owner  *Ship
+	Damage float32
 }
 
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
@@ -337,6 +342,17 @@ func (t PartType) isWeapon() bool {
 // on the PDC trigger.
 func (t PartType) isMissileWeapon() bool {
 	return t == PartMissileLauncher || t == PartRailgun || t == PartRattlesnakeMissile
+}
+
+func (t PartType) baseDamage() float32 {
+	switch t {
+	case PartMissileLauncher, PartRattlesnakeMissile:
+		return missileBlastDamage
+	case PartRailgun:
+		return railgunDamage
+	default:
+		return projectileDamage
+	}
 }
 
 // fireInterval is the cadence between this mount's shots: a slow junk PDC fires
@@ -443,21 +459,21 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		if math.Abs(float64(angleDiff(aim, mount))) > float64(part.Type.halfArc()) {
 			continue
 		}
-		part.FireCooldown = part.Type.fireInterval()
+		part.FireCooldown = part.weaponFireInterval()
 
 		dirX, dirY := dx/dist, dy/dist
 		pos := rl.NewVector2(center.X+dirX*cellSize*0.5, center.Y+dirY*cellSize*0.5)
 		if part.Type == PartRailgun {
 			// A railgun strikes instantly along the aim; the hit is resolved in the
 			// physics layer, which has the rigid bodies for damage and recoil.
-			rails = append(rails, RailgunShot{Origin: pos, Dir: rl.NewVector2(dirX, dirY), Owner: s})
+			rails = append(rails, RailgunShot{Origin: pos, Dir: rl.NewVector2(dirX, dirY), Owner: s, Damage: part.weaponDamage()})
 			continue
 		}
 		if part.Type == PartMissileLauncher {
 			// A missile is self-propelled: it leaves the tube slowly along the aim
 			// (not inheriting the ship's velocity) and accelerates from there.
 			vel := rl.NewVector2(dirX*missileLaunchSpeed, dirY*missileLaunchSpeed)
-			shots = append(shots, NewMissile(s, pos, vel, aim))
+			shots = append(shots, NewMissile(s, pos, vel, aim, part.weaponDamage()))
 			continue
 		}
 		if part.Type == PartRattlesnakeMissile {
@@ -469,7 +485,7 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			rx, ry := float32(math.Sin(float64(right))), float32(-math.Cos(float64(right)))
 			launchPos := rl.NewVector2(center.X+rx*cellSize*0.5, center.Y+ry*cellSize*0.5)
 			driftVel := rl.NewVector2(rx*rattlesnakeDriftSpeed, ry*rattlesnakeDriftSpeed)
-			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, target, right))
+			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, target, right, part.weaponDamage()))
 			continue
 		}
 		// Scatter each round within pdcSpread of the aim so sustained fire fans
@@ -481,7 +497,7 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			s.Velocity.X+fdx*pdcMuzzleSpeed,
 			s.Velocity.Y+fdy*pdcMuzzleSpeed,
 		)
-		shots = append(shots, NewProjectile(s, pos, vel, fired))
+		shots = append(shots, NewProjectile(s, pos, vel, fired, part.weaponDamage()))
 	}
 	return shots, rails
 }

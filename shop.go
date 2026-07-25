@@ -32,6 +32,8 @@ func partPrice(t PartType) int {
 		return 3
 	case PartArmor:
 		return 10
+	case PartGold:
+		return 10
 	case PartEngine:
 		return 8
 	case PartControlThruster:

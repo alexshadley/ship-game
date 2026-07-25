@@ -34,7 +34,8 @@
       "x": -1,
       "y": -1,
       "type": "PDC",
-      "facing": "Left"
+      "facing": "Left",
+      "level": 2
     },
     {
       "x": 0,
@@ -46,7 +47,14 @@
       "x": 1,
       "y": -1,
       "type": "PDC",
-      "facing": "Right"
+      "facing": "Right",
+      "level": 2
+    },
+    {
+      "x": 2,
+      "y": -1,
+      "type": "Rattlesnake Missile",
+      "facing": "Up"
     },
     {
       "x": -2,

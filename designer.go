@@ -176,8 +176,20 @@ func (d *Designer) Frame() bool {
 		rl.DrawText("Outfitting: "+d.name, dsLeftPanelW+40, 22, 24, uiText)
 	}
 	d.drawHint()
+	d.drawPartTooltip()
 
 	return exit
+}
+
+func (d *Designer) drawPartTooltip() {
+	if d.editingName || !mouseIn(d.gridRegion()) {
+		return
+	}
+	part, ok := d.ship.Parts[d.hoveredCell()]
+	if !ok {
+		return
+	}
+	drawTooltip(partTooltipLines(part), rl.GetMousePosition(), 18, windowWidth, windowHeight)
 }
 
 func (d *Designer) updateNameInput() {
@@ -274,7 +286,7 @@ func (d *Designer) gridRegion() rl.Rectangle {
 }
 
 func (d *Designer) hoveredCell() GridCoord {
-	w := rl.GetScreenToWorld2D(rl.GetMousePosition(), d.camera)
+	w := rl.GetScreenToWorld2D(uiMouse(), d.camera)
 	return GridCoord{
 		X: int(math.Round(float64(w.X / cellSize))),
 		Y: int(math.Round(float64(w.Y / cellSize))),
