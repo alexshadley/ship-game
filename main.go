@@ -106,7 +106,7 @@ func main() {
 	var enemies []*Ship
 	var enemyAIs []*EnemyAI
 	spawnEnemy := func() {
-		e, ai := SpawnEnemy(ship, asteroids)
+		e, ai := SpawnEnemy(ship)
 		physics.AddShip(e, ai)
 		enemies = append(enemies, e)
 		enemyAIs = append(enemyAIs, ai)
