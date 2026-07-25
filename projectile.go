@@ -56,6 +56,22 @@ const (
 	// missile self-propels to a cruise speed, so it reaches about twice as far as a
 	// PDC and launchers open fire at a correspondingly longer range.
 	missileEngagementRange = 1800
+
+	// A railgun is a heavy hitscan weapon (see PartRailgun). It fires within a very
+	// narrow arc on a slow reload and strikes instantly along a straight line — no
+	// projectile — dealing railgunDamage to the first thing the beam meets within
+	// railgunRange. Firing kicks the shooter back a little (railgunRecoilImpulse)
+	// and shoves the struck body a lot more (railgunImpactImpulse); the two impulses
+	// deliberately don't balance. The white beam lingers railgunBeamDuration seconds
+	// so an instantaneous shot still reads on screen.
+	railgunDamage          = 600.0
+	railgunFireInterval    = 3.5
+	railgunHalfArc         = 0.07 * math.Pi
+	railgunEngagementRange = 2600
+	railgunRange           = 4000.0
+	railgunRecoilImpulse   = 4000.0
+	railgunImpactImpulse   = 22000.0
+	railgunBeamDuration    = 0.12
 )
 
 var (
@@ -230,9 +246,19 @@ func (p *Projectile) EmitExhaust(ps *ParticleSystem) {
 	ps.EmitMissile(pos, dir, p.Velocity)
 }
 
+// RailgunShot is one hitscan shot a railgun mount loosed this frame: a straight
+// beam from Origin along the unit vector Dir, resolved instantly against the world
+// (see Physics.fireRailgun). Owner is the ship that fired it, so the beam passes
+// through its own hull.
+type RailgunShot struct {
+	Origin rl.Vector2
+	Dir    rl.Vector2
+	Owner  *Ship
+}
+
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
 func (t PartType) isWeapon() bool {
-	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher
+	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun
 }
 
 // fireInterval is the cadence between this mount's shots: a slow junk PDC fires
@@ -245,6 +271,8 @@ func (t PartType) fireInterval() float32 {
 		return slowPDCFireInterval
 	case PartMissileLauncher:
 		return missileFireInterval
+	case PartRailgun:
+		return railgunFireInterval
 	default:
 		return pdcFireInterval
 	}
@@ -253,20 +281,28 @@ func (t PartType) fireInterval() float32 {
 // halfArc is how far a mount may slew its aim to either side of its mount facing.
 // A missile launcher has a much tighter arc than a PDC.
 func (t PartType) halfArc() float32 {
-	if t == PartMissileLauncher {
+	switch t {
+	case PartMissileLauncher:
 		return missileHalfArc
+	case PartRailgun:
+		return railgunHalfArc
+	default:
+		return pdcHalfArc
 	}
-	return pdcHalfArc
 }
 
 // engagementRange is how close (world px) the fire target must be for this mount
 // to open fire when Controls.EnforceEngagementRange is set. A missile launcher
 // reaches about twice as far as a PDC. The player fires without this gate.
 func (t PartType) engagementRange() float32 {
-	if t == PartMissileLauncher {
+	switch t {
+	case PartMissileLauncher:
 		return missileEngagementRange
+	case PartRailgun:
+		return railgunEngagementRange
+	default:
+		return pdcEngagementRange
 	}
-	return pdcEngagementRange
 }
 
 // FireWeapons advances each weapon mount's independent cooldown and returns the
@@ -276,21 +312,22 @@ func (t PartType) engagementRange() float32 {
 // target is outside its arc holds fire until the target swings back in. PDCs
 // spit fast, short-ranged rounds; missile launchers loose a slow, accelerating,
 // destructible missile.
-func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
+func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []RailgunShot) {
 	var shots []*Projectile
+	var rails []RailgunShot
 	for c, part := range s.Parts {
 		if !part.Type.isWeapon() {
 			continue
 		}
 
 		part.FireCooldown -= dt
-		// PDCs fire on the main trigger and aim at PDCTarget; missile launchers
-		// have their own trigger and aim at MissileTarget, so the two weapon types
-		// fire independently and can point at different things (an enemy PDC swats
-		// an inbound missile while its launcher stays on the target ship).
+		// PDCs fire on the main trigger and aim at PDCTarget; missile launchers and
+		// railguns share their own trigger and aim at MissileTarget, so the two
+		// weapon groups fire independently and can point at different things (an
+		// enemy PDC swats an inbound missile while its launcher stays on the target).
 		triggered := controls.Fire
 		fireTarget := controls.PDCTarget
-		if part.Type == PartMissileLauncher {
+		if part.Type == PartMissileLauncher || part.Type == PartRailgun {
 			triggered = controls.FireMissiles
 			fireTarget = controls.MissileTarget
 		}
@@ -326,6 +363,12 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 
 		dirX, dirY := dx/dist, dy/dist
 		pos := rl.NewVector2(center.X+dirX*cellSize*0.5, center.Y+dirY*cellSize*0.5)
+		if part.Type == PartRailgun {
+			// A railgun strikes instantly along the aim; the hit is resolved in the
+			// physics layer, which has the rigid bodies for damage and recoil.
+			rails = append(rails, RailgunShot{Origin: pos, Dir: rl.NewVector2(dirX, dirY), Owner: s})
+			continue
+		}
 		if part.Type == PartMissileLauncher {
 			// A missile is self-propelled: it leaves the tube slowly along the aim
 			// (not inheriting the ship's velocity) and accelerates from there.
@@ -344,5 +387,5 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 		)
 		shots = append(shots, NewProjectile(s, pos, vel, fired))
 	}
-	return shots
+	return shots, rails
 }
