@@ -9,7 +9,7 @@ import (
 const (
 	minimapRadius = 46
 	minimapMargin = 8
-	minimapScale  = 0.02
+	minimapScale  = 0.01
 
 	missileBlipRadius = 1.4
 )
