@@ -182,12 +182,18 @@ func main() {
 			live := projectiles[:0]
 			for _, pr := range projectiles {
 				pr.Update(dt)
-				if !pr.Expired() {
+				if pr.Expired() {
+					// A missile that runs out of fuel goes off where it dies rather
+					// than quietly disappearing.
 					if pr.Kind == projectileMissile {
-						pr.EmitExhaust(particles)
+						physics.DetonateMissile(pr, particles)
 					}
-					live = append(live, pr)
+					continue
 				}
+				if pr.Kind == projectileMissile {
+					pr.EmitExhaust(particles)
+				}
+				live = append(live, pr)
 			}
 			projectiles = live
 

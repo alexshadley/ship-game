@@ -300,9 +300,10 @@ func (p *Physics) damageShipShapePart(shape *cp.Shape, impulse float64) {
 func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *ParticleSystem) []*Projectile {
 	// Point defense: a PDC round that passes close to a hostile missile chips its
 	// health and is spent doing so. A missile shot down this way (health driven to
-	// zero) is destroyed without detonating — the reward for intercepting it. A
-	// ship's own rounds never touch its own missiles (they'd otherwise overtake the
-	// slow round on launch), so only enemy fire can bring one down.
+	// zero) detonates on the spot just as it would on impact — intercepting it
+	// still sets off its blast, so the point is to catch it before it reaches you.
+	// A ship's own rounds never touch its own missiles (they'd otherwise overtake
+	// the slow round on launch), so only enemy fire can bring one down.
 	consumed := make(map[*Projectile]bool)
 	for _, m := range projectiles {
 		if m.Kind != projectileMissile {
@@ -319,6 +320,7 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 			m.Health -= projectileDamage
 			if m.Health <= 0 {
 				consumed[m] = true
+				p.DetonateMissile(m, particles)
 				break
 			}
 		}
@@ -431,9 +433,17 @@ func (p *Physics) missileHit(pr *Projectile, particles *ParticleSystem) bool {
 	if !hit {
 		return false
 	}
+	p.DetonateMissile(pr, particles)
+	return true
+}
+
+// DetonateMissile sets off a missile: an area blast plus its explosion animation,
+// centred where the missile is. Every way a missile can be destroyed — a direct
+// impact, a PDC interception, or running out of fuel — routes through here so a
+// missile always goes off rather than silently vanishing.
+func (p *Physics) DetonateMissile(pr *Projectile, particles *ParticleSystem) {
 	p.missileBlast(pr.Position)
 	particles.SpawnExplosion(pr.Position, missileBlastRadius)
-	return true
 }
 
 // missileBlast applies a missile's detonation at center: every ship part, piece
