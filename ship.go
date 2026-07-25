@@ -41,6 +41,20 @@ func (s *Ship) Cockpit() (GridCoord, bool) {
 	return GridCoord{}, false
 }
 
+// RestoreFullHealth heals every part back to its spec maximum and tops up any
+// shields, leaving the ship pristine. Used when embarking from the shop starts a
+// fresh round with the refitted ship.
+func (s *Ship) RestoreFullHealth() {
+	for _, p := range s.Parts {
+		p.Health = partSpecs[p.Type].health
+		if p.Type == PartShield {
+			p.ShieldHealth = p.shieldMax()
+			p.ShieldDownTimer = 0
+			p.ShieldRegenDelay = 0
+		}
+	}
+}
+
 func (s *Ship) Mass() float32 {
 	var total float32
 	for _, p := range s.Parts {

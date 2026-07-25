@@ -1423,32 +1423,53 @@ func (p *Physics) RebuildShipBody(ship *Ship) {
 			continue
 		}
 		old := sb.body
-		pos := old.Position()
-		angle := old.Angle()
-		vel := old.Velocity()
-		avel := old.AngularVelocity()
-
-		for part, shape := range sb.shipShapes {
-			p.space.RemoveShape(shape)
-			delete(sb.shipShapes, part)
-		}
-		p.space.RemoveBody(old)
-
-		body := cp.NewBody(1, 1)
-		body.SetPosition(pos)
-		body.SetAngle(angle)
-		p.space.AddBody(body)
-		for c, part := range ship.Parts {
-			sb.shipShapes[part] = p.addShipShape(body, c, part)
-		}
-		body.AccumulateMassFromShapes()
-		body.SetVelocityVector(vel)
-		body.SetAngularVelocity(avel)
-
-		sb.body = body
-		p.recomputeShipBody(sb)
+		p.rebuildShipBodyAt(sb, old.Position(), old.Angle(), old.Velocity(), old.AngularVelocity())
 		return
 	}
+}
+
+// ResetShip rebuilds ship's body centred at pos, upright, and at rest, then syncs
+// the ship's own kinematic fields to match. Used when embarking from the shop
+// starts a fresh round: the refitted ship is set down in the middle of the field
+// with no leftover motion from the previous round.
+func (p *Physics) ResetShip(ship *Ship, pos rl.Vector2) {
+	for _, sb := range p.ships {
+		if sb.ship != ship {
+			continue
+		}
+		p.rebuildShipBodyAt(sb, cp.Vector{X: float64(pos.X), Y: float64(pos.Y)}, 0, cp.Vector{}, 0)
+		ship.Position = pos
+		ship.Direction = 0
+		ship.Velocity = rl.Vector2{}
+		ship.AngularVelocity = 0
+		return
+	}
+}
+
+// rebuildShipBodyAt swaps sb's rigid body for a fresh one built from the ship's
+// current Parts at the given kinematic state (position, angle, linear and angular
+// velocity). Shared by RebuildShipBody (which preserves the old state) and
+// ResetShip (which supplies a centred, stationary one).
+func (p *Physics) rebuildShipBodyAt(sb *shipBody, pos cp.Vector, angle float64, vel cp.Vector, avel float64) {
+	for part, shape := range sb.shipShapes {
+		p.space.RemoveShape(shape)
+		delete(sb.shipShapes, part)
+	}
+	p.space.RemoveBody(sb.body)
+
+	body := cp.NewBody(1, 1)
+	body.SetPosition(pos)
+	body.SetAngle(angle)
+	p.space.AddBody(body)
+	for c, part := range sb.ship.Parts {
+		sb.shipShapes[part] = p.addShipShape(body, c, part)
+	}
+	body.AccumulateMassFromShapes()
+	body.SetVelocityVector(vel)
+	body.SetAngularVelocity(avel)
+
+	sb.body = body
+	p.recomputeShipBody(sb)
 }
 
 // ClearEnemyShips removes every ship except the player from the simulation,
