@@ -487,10 +487,17 @@ func (d *Designer) rightPanel(exit *bool) {
 		*exit = true
 	}
 	// The shop edits the live ship in place; there's nothing to save to a file.
+	// Its primary action is Embark, which launches the next round.
 	if d.shop == nil {
 		saveBtn := rl.NewRectangle(x, windowHeight-120, w, 40)
 		if uiButtonRect(saveBtn, "Save", 22, false) {
 			d.save()
+		}
+	} else {
+		embarkBtn := rl.NewRectangle(x, windowHeight-124, w, 44)
+		if uiButtonRect(embarkBtn, "EMBARK  ▶  Next Round", 22, true) {
+			d.shop.embark = true
+			*exit = true
 		}
 	}
 	if d.status != "" {

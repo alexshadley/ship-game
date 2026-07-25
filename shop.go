@@ -11,6 +11,10 @@ type ShopState struct {
 	money     *int
 	inventory map[PartType]int
 	offers    []ShopOffer
+
+	// embark is set by the Embark button; it tells the caller to start the next
+	// round rather than fall back to the pause menu when the shop closes.
+	embark bool
 }
 
 // ShopOffer is a single part on sale. Once bought it's marked sold and can't be

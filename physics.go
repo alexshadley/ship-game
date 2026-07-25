@@ -1122,6 +1122,26 @@ func (p *Physics) RebuildShipBody(ship *Ship) {
 	}
 }
 
+// ClearEnemyShips removes every ship except the player from the simulation,
+// dropping their bodies and shapes from the space. Used to wipe the battlefield
+// between rounds so a fresh round starts clean. Loose parts are left alone.
+func (p *Physics) ClearEnemyShips() {
+	survivors := p.ships[:0]
+	for _, sb := range p.ships {
+		if sb.ship == p.playerShip {
+			survivors = append(survivors, sb)
+			continue
+		}
+		for part, shape := range sb.shipShapes {
+			p.space.RemoveShape(shape)
+			delete(sb.shipShapes, part)
+		}
+		p.space.RemoveBody(sb.body)
+		sb.ship.Destroyed = true
+	}
+	p.ships = survivors
+}
+
 // recomputeShipBody rebuilds the body's mass, moment, and center of gravity from
 // its current shapes after parts are added or lost, and refreshes the cached
 // engine/thruster counts. AccumulateMassFromShapes re-derives the centroid and
