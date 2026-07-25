@@ -4,7 +4,13 @@
       "x": 0,
       "y": -3,
       "type": "Armor",
-      "facing": "Down"
+      "facing": "Left"
+    },
+    {
+      "x": -1,
+      "y": -2,
+      "type": "Slow PDC",
+      "facing": "Up"
     },
     {
       "x": 0,
@@ -13,22 +19,16 @@
       "facing": "Down"
     },
     {
-      "x": -1,
-      "y": -1,
-      "type": "Slow PDC",
-      "facing": "Up"
+      "x": 1,
+      "y": -2,
+      "type": "Control Thruster",
+      "facing": "Left"
     },
     {
       "x": 0,
       "y": -1,
       "type": "Block",
       "facing": "Down"
-    },
-    {
-      "x": 1,
-      "y": -1,
-      "type": "Control Thruster",
-      "facing": "Left"
     },
     {
       "x": 0,

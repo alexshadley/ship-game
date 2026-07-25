@@ -1,63 +1,177 @@
 {
   "parts": [
     {
+      "x": 5,
+      "y": -5,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": -4,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": -4,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 3,
+      "y": -3,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": -3,
+      "type": "Missile Launcher",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": -3,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": -2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": -2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": -2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": -1,
+      "type": "Slow PDC",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Right"
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
       "x": 0,
       "y": 0,
       "type": "Cockpit",
       "facing": "Up"
     },
     {
-      "x": 0,
-      "y": 1,
-      "type": "Block",
-      "facing": "Left"
-    },
-    {
-      "x": 0,
-      "y": 2,
-      "type": "Block",
-      "facing": "Left"
-    },
-    {
-      "x": 0,
-      "y": 3,
-      "type": "Block",
-      "facing": "Left"
-    },
-    {
-      "x": -1,
-      "y": 4,
-      "type": "Control Thruster",
-      "facing": "Right"
-    },
-    {
-      "x": 0,
-      "y": 4,
-      "type": "Block",
-      "facing": "Down"
-    },
-    {
       "x": 1,
-      "y": 4,
-      "type": "Engine",
-      "facing": "Down"
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
     },
     {
       "x": 2,
-      "y": 4,
+      "y": 0,
       "type": "Block",
-      "facing": "Down"
+      "facing": "Up"
     },
     {
       "x": 3,
-      "y": 4,
+      "y": 0,
       "type": "Block",
-      "facing": "Down"
+      "facing": "Up"
     },
     {
       "x": 4,
-      "y": 4,
-      "type": "Slow PDC",
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 6,
+      "y": 0,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 7,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Left"
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Up"
+    },
+    {
+      "x": 3,
+      "y": 1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Up"
+    },
+    {
+      "x": 5,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Up"
+    },
+    {
+      "x": 6,
+      "y": 1,
+      "type": "Block",
       "facing": "Up"
     }
   ]
