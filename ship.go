@@ -375,36 +375,49 @@ func (s *Ship) Draw() {
 // mount, in world pixels — a few cells, enough to read clearly over the ship.
 const pdcArcRadius = cellSize * 4
 
-// DrawFiringArcs overlays every PDC's firing arc on the ship. aim is the world
-// point the player is aiming at (the cursor). Each mount whose aim at that point
-// falls within its arc — the mounts that would actually fire — is drawn lit; the
-// rest are dim. This mirrors the bearing test in FirePDCs.
+// DrawFiringArcs overlays every weapon's firing arc on the ship. aim is the
+// world point the player is aiming at (the cursor). Each mount whose aim at that
+// point falls within its arc — the mounts that would actually fire — is drawn
+// lit; the rest are dim. This mirrors the bearing test in FireWeapons. PDCs and
+// missile launchers get distinct colors so the two weapon groups read apart.
 func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
 	for c, part := range s.Parts {
-		if part.Type != PartPDC && part.Type != PartSlowPDC {
+		if !part.Type.isWeapon() {
 			continue
 		}
 
+		halfArc := float64(part.Type.halfArc())
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 		mount := s.Direction + part.Facing.angle()
 
 		// A mount lights up when it can bear on the cursor — the same arc check
-		// FirePDCs uses to decide whether the mount takes the shot.
+		// FireWeapons uses to decide whether the mount takes the shot.
 		active := false
 		if dx, dy := aim.X-center.X, aim.Y-center.Y; dx != 0 || dy != 0 {
-			active = math.Abs(float64(angleDiff(heading(dx, dy), mount))) <= pdcHalfArc
+			active = math.Abs(float64(angleDiff(heading(dx, dy), mount))) <= halfArc
 		}
 
 		// A world heading h points along (sin h, -cos h); as a raylib sector
 		// angle (degrees, 0 = +x, increasing clockwise) that is h - 90°.
-		startDeg := (mount-pdcHalfArc)*180/math.Pi - 90
-		endDeg := (mount+pdcHalfArc)*180/math.Pi - 90
+		startDeg := (mount-float32(halfArc))*180/math.Pi - 90
+		endDeg := (mount+float32(halfArc))*180/math.Pi - 90
 
-		fill := rl.NewColor(120, 170, 220, 19)
-		edge := rl.NewColor(120, 170, 220, 78)
-		if active {
-			fill = rl.NewColor(255, 200, 70, 44)
-			edge = rl.NewColor(255, 205, 80, 175)
+		// Missile launchers glow red; PDCs glow blue (amber when bearing).
+		var fill, edge rl.Color
+		if part.Type == PartMissileLauncher {
+			fill = rl.NewColor(220, 90, 80, 19)
+			edge = rl.NewColor(220, 90, 80, 78)
+			if active {
+				fill = rl.NewColor(255, 80, 60, 44)
+				edge = rl.NewColor(255, 90, 70, 175)
+			}
+		} else {
+			fill = rl.NewColor(120, 170, 220, 19)
+			edge = rl.NewColor(120, 170, 220, 78)
+			if active {
+				fill = rl.NewColor(255, 200, 70, 44)
+				edge = rl.NewColor(255, 205, 80, 175)
+			}
 		}
 
 		rl.DrawCircleSector(center, pdcArcRadius, startDeg, endDeg, 24, fill)
