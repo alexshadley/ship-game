@@ -241,6 +241,17 @@ type Part struct {
 	// FireCooldown is the per-PDC countdown to its next shot, so each PDC
 	// fires on its own cadence regardless of the ship's other PDCs.
 	FireCooldown float32
+	// RailgunCharge is how long (seconds) a railgun mount has been warming up
+	// toward its next shot while its trigger is held; it resets to zero if the
+	// trigger lapses. The shot fires once it reaches railgunWarmup. Only used by
+	// PartRailgun.
+	RailgunCharge float32
+	// RailgunAim is the fire heading captured when the warm-up began, stored
+	// relative to the ship's own direction so it rotates with the hull. The aim is
+	// locked for the whole warm-up: the mount commits to this bearing and ignores
+	// any new target until it fires, but a spin of the ship still swings the shot.
+	// Only meaningful while RailgunCharge > 0.
+	RailgunAim float32
 
 	ShieldHealth     float32
 	ShieldDownTimer  float32

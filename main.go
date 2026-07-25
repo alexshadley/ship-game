@@ -19,16 +19,17 @@ const (
 	windowWidth  = 1920
 	windowHeight = 1080
 
-	pilotingZoom      = 0.15
+	pilotingZoom      = 0.25
 	spacewalkZoom     = 0.7
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
 
 	// While piloting, the scroll wheel and the -/= keys adjust the zoom between
-	// these bounds. The default (pilotingZoom) sits between them so the view can be
-	// pulled both further out (toward pilotZoomMin) and in (toward pilotZoomMax).
-	pilotZoomMin  = 0.05
-	pilotZoomMax  = 0.4
+	// these bounds. pilotZoomMin frames the widest swath of the battlefield (most
+	// zoomed out); pilotZoomMax matches the starting pilotingZoom, so the default
+	// view is the most zoomed-in you can get and the controls only pull back out.
+	pilotZoomMin  = 0.1
+	pilotZoomMax  = pilotingZoom
 	pilotZoomStep = 0.01
 	// Per-second zoom rate while a zoom key is held (trackpad users have no wheel).
 	pilotZoomKeyRate = 0.25
@@ -203,14 +204,24 @@ func main() {
 	money := 0
 	inventory := map[PartType]int{}
 
-	// startRound resets the battlefield and clock for a fresh round: the previous
-	// round's enemies and projectiles are cleared, a new enemy warps in, and the
-	// stage timer refills. The player's ship, money, and inventory carry over.
+	// startRound resets the game for a fresh round: the previous round's enemies and
+	// projectiles are cleared, the refitted ship is healed to full and set down
+	// upright and at rest in the middle of the field, a new enemy warps in, and the
+	// stage timer refills. The player's money and inventory carry over.
 	startRound := func() {
 		physics.ClearEnemyShips()
 		enemies = nil
 		enemyAIs = nil
 		projectiles = nil
+		// If the player embarked while out on a spacewalk, pull them back aboard
+		// before the new ship is set down.
+		if spacewalking {
+			physics.DetachPlayer()
+			spacewalking = false
+		}
+		ship.RestoreFullHealth()
+		physics.ResetShip(ship, rl.NewVector2(0, 0))
+		gameOver = false
 		stageTimer = stageDuration
 		enemySpawnTimer = enemySpawnInterval
 		spawnEnemy()
@@ -534,14 +545,14 @@ func main() {
 
 		if designerDone {
 			if state == StateShop {
-				// The shop edited the live ship's parts; regenerate its physics body
-				// so the changes take effect back in the game.
-				physics.RebuildShipBody(ship)
 				if designer.shop.embark {
-					// Embark launches the next round.
+					// Embark launches the next round, which heals and recentres the
+					// refitted ship (its rebuilt body picks up the shop's edits).
 					startRound()
 				} else {
-					// Backed out (Esc / Leave) — return to the pause menu.
+					// Backed out (Esc / Leave) — the shop edited the live ship's parts,
+					// so regenerate its physics body, then return to the pause menu.
+					physics.RebuildShipBody(ship)
 					state = StateMenu
 				}
 			} else {

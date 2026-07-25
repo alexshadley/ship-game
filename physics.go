@@ -101,6 +101,10 @@ type Physics struct {
 	// beams are the railgun shots fired recently, kept only so their white line
 	// lingers a few frames after the instantaneous hit (see fireRailgun / DrawBeams).
 	beams []*RailgunBeam
+
+	// charges are the railgun mounts still warming up this frame, rebuilt every
+	// update from FireWeapons and drawn as converging red telegraph lines.
+	charges []RailgunCharge
 }
 
 // RailgunBeam is the fading white line drawn for one resolved railgun shot: from
@@ -726,8 +730,33 @@ func (p *Physics) updateBeams(dt float32) {
 }
 
 // DrawBeams renders the lingering railgun beams as white lines that fade out over
-// their lifetime. Called from the main render pass in world space.
+// their lifetime, plus the red warm-up telegraph for any railgun still charging.
+// Called from the main render pass in world space.
 func (p *Physics) DrawBeams() {
+	// Warm-up telegraphs first, so a fired beam draws over the last frame of its
+	// own charge. Each is two red lines parallel to the locked shot, offset to
+	// either side and sliding together onto the beam line as the charge completes.
+	for _, c := range p.charges {
+		prog := c.Progress
+		if prog < 0 {
+			prog = 0
+		} else if prog > 1 {
+			prog = 1
+		}
+		// Endpoints of the beam line itself: the full reach the shot will travel.
+		far := rl.NewVector2(c.Origin.X+c.Dir.X*railgunRange, c.Origin.Y+c.Dir.Y*railgunRange)
+		// Perpendicular to the shot; the two lines sit at ±offset and close to 0.
+		perpX, perpY := -c.Dir.Y, c.Dir.X
+		offset := railgunTelegraphSpread * (1 - prog)
+		// Brighten as the two lines close in so the imminent shot reads clearly.
+		red := rl.NewColor(255, 40, 40, uint8(120+135*prog))
+		for _, s := range []float32{offset, -offset} {
+			a := rl.NewVector2(c.Origin.X+perpX*s, c.Origin.Y+perpY*s)
+			b := rl.NewVector2(far.X+perpX*s, far.Y+perpY*s)
+			rl.DrawLineEx(a, b, 3, red)
+		}
+	}
+
 	for _, b := range p.beams {
 		frac := b.TTL / railgunBeamDuration
 		if frac < 0 {
@@ -952,6 +981,9 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	}
 
 	var projectiles []*Projectile
+	// Railgun warm-up telegraphs are transient: rebuild the list from scratch each
+	// frame from the mounts still charging.
+	p.charges = p.charges[:0]
 	survivors := p.ships[:0]
 	for _, sb := range p.ships {
 		// Position() reports the world location of the body's local origin (the
@@ -976,8 +1008,9 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 		emitExhaust(sb.ship, sb.controls, particles)
 
-		shots, rails := sb.ship.FireWeapons(float32(dt), sb.controls)
+		shots, rails, charges := sb.ship.FireWeapons(float32(dt), sb.controls)
 		projectiles = append(projectiles, shots...)
+		p.charges = append(p.charges, charges...)
 		// Railgun shots are hitscan: resolve each right here, where the shooter's
 		// rigid body (sb.body) is on hand for recoil.
 		for _, r := range rails {
@@ -1390,32 +1423,53 @@ func (p *Physics) RebuildShipBody(ship *Ship) {
 			continue
 		}
 		old := sb.body
-		pos := old.Position()
-		angle := old.Angle()
-		vel := old.Velocity()
-		avel := old.AngularVelocity()
-
-		for part, shape := range sb.shipShapes {
-			p.space.RemoveShape(shape)
-			delete(sb.shipShapes, part)
-		}
-		p.space.RemoveBody(old)
-
-		body := cp.NewBody(1, 1)
-		body.SetPosition(pos)
-		body.SetAngle(angle)
-		p.space.AddBody(body)
-		for c, part := range ship.Parts {
-			sb.shipShapes[part] = p.addShipShape(body, c, part)
-		}
-		body.AccumulateMassFromShapes()
-		body.SetVelocityVector(vel)
-		body.SetAngularVelocity(avel)
-
-		sb.body = body
-		p.recomputeShipBody(sb)
+		p.rebuildShipBodyAt(sb, old.Position(), old.Angle(), old.Velocity(), old.AngularVelocity())
 		return
 	}
+}
+
+// ResetShip rebuilds ship's body centred at pos, upright, and at rest, then syncs
+// the ship's own kinematic fields to match. Used when embarking from the shop
+// starts a fresh round: the refitted ship is set down in the middle of the field
+// with no leftover motion from the previous round.
+func (p *Physics) ResetShip(ship *Ship, pos rl.Vector2) {
+	for _, sb := range p.ships {
+		if sb.ship != ship {
+			continue
+		}
+		p.rebuildShipBodyAt(sb, cp.Vector{X: float64(pos.X), Y: float64(pos.Y)}, 0, cp.Vector{}, 0)
+		ship.Position = pos
+		ship.Direction = 0
+		ship.Velocity = rl.Vector2{}
+		ship.AngularVelocity = 0
+		return
+	}
+}
+
+// rebuildShipBodyAt swaps sb's rigid body for a fresh one built from the ship's
+// current Parts at the given kinematic state (position, angle, linear and angular
+// velocity). Shared by RebuildShipBody (which preserves the old state) and
+// ResetShip (which supplies a centred, stationary one).
+func (p *Physics) rebuildShipBodyAt(sb *shipBody, pos cp.Vector, angle float64, vel cp.Vector, avel float64) {
+	for part, shape := range sb.shipShapes {
+		p.space.RemoveShape(shape)
+		delete(sb.shipShapes, part)
+	}
+	p.space.RemoveBody(sb.body)
+
+	body := cp.NewBody(1, 1)
+	body.SetPosition(pos)
+	body.SetAngle(angle)
+	p.space.AddBody(body)
+	for c, part := range sb.ship.Parts {
+		sb.shipShapes[part] = p.addShipShape(body, c, part)
+	}
+	body.AccumulateMassFromShapes()
+	body.SetVelocityVector(vel)
+	body.SetAngularVelocity(avel)
+
+	sb.body = body
+	p.recomputeShipBody(sb)
 }
 
 // ClearEnemyShips removes every ship except the player from the simulation,
