@@ -72,6 +72,10 @@ func enemyControls(w AIWorld) (Controls, float32) {
 		PDCTarget:              pdcTarget,
 		MissileTarget:          missileTarget,
 		EnforceEngagementRange: true,
+		// Any auto-turret the enemy carries stays armed and tracks the player.
+		AutoFire:      true,
+		HasAutoTarget: true,
+		AutoTarget:    missileTarget,
 	}, desired
 }
 

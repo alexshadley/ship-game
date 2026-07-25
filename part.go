@@ -45,6 +45,11 @@ const (
 	// toward the fire target — a curved, flanking shot (see FireWeapons and the
 	// drift-missile branch of Projectile.Update).
 	PartRattlesnakeMissile
+	// PartAutoTurret is an automatic weapon: rather than aiming at a manual fire
+	// target it slews a full circle and tracks the nearest enemy on its own,
+	// spitting PDC-style rounds while the player's auto-turret toggle is armed (see
+	// FireWeapons and Controls.AutoFire). Enemy ships fire theirs at the player.
+	PartAutoTurret
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -89,6 +94,8 @@ func (t PartType) String() string {
 		return "Railgun"
 	case PartRattlesnakeMissile:
 		return "Rattlesnake Missile"
+	case PartAutoTurret:
+		return "Auto-Turret"
 	default:
 		return "Unknown"
 	}
@@ -364,7 +371,7 @@ var partSpecs = map[PartType]partSpec{
 	PartCockpit: {health: 75, weight: partWeight, color: rl.SkyBlue},
 	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray},
 	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
-	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
+	PartArmor: {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
 	// Gold is a block-grade cell at twice a normal part's weight; it's valuable cargo.
 	PartGold:   {health: 150, weight: 2 * partWeight, color: rl.Gold},
 	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
@@ -376,6 +383,7 @@ var partSpecs = map[PartType]partSpec{
 	PartShield:             {health: 75, weight: partWeight, color: rl.Blue},
 	PartRailgun:            {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
 	PartRattlesnakeMissile: {health: 75, weight: partWeight, color: rl.NewColor(150, 100, 55, 255)},
+	PartAutoTurret:         {health: 75, weight: partWeight, color: rl.NewColor(80, 200, 160, 255)},
 }
 
 const (

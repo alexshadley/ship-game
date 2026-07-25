@@ -4,7 +4,8 @@
       "x": 0,
       "y": -4,
       "type": "Shield",
-      "facing": "Up"
+      "facing": "Up",
+      "level": 1
     },
     {
       "x": 0,
@@ -15,8 +16,9 @@
     {
       "x": -1,
       "y": -2,
-      "type": "Block",
-      "facing": "Up"
+      "type": "Auto-Turret",
+      "facing": "Left",
+      "level": 1
     },
     {
       "x": 0,
@@ -28,8 +30,9 @@
     {
       "x": 1,
       "y": -2,
-      "type": "Block",
-      "facing": "Up"
+      "type": "Auto-Turret",
+      "facing": "Right",
+      "level": 1
     },
     {
       "x": -1,

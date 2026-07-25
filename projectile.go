@@ -81,6 +81,17 @@ const (
 	// warm-up lines start (world px) before sliding in to meet it.
 	railgunTelegraphSpread = cellSize * 1.5
 
+	// An auto-turret (PartAutoTurret) is an automatic weapon: it fires the same
+	// short-ranged rounds as a PDC (pdcMuzzleSpeed) but aims itself rather than
+	// tracking a manual fire target. It slews a full circle (autoTurretHalfArc =
+	// π, so any bearing is in arc) to keep the nearest enemy in its sights and
+	// fires at autoTurretFireInterval while the auto-fire toggle is armed. Its
+	// rounds carry projectileDamage (see PartType.baseDamage) and reach about as
+	// far as a PDC's, so it opens fire at autoTurretEngagementRange.
+	autoTurretFireInterval    = 0.13
+	autoTurretHalfArc         = math.Pi
+	autoTurretEngagementRange = pdcEngagementRange
+
 	// A PartRattlesnakeMissile fires the same missile as a PartMissileLauncher (same
 	// health, blast, and cruise behaviour) but with a two-phase launch. The round
 	// first ejects sideways out the mount's right side and floats there at
@@ -419,7 +430,7 @@ type RailgunCharge struct {
 
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
 func (t PartType) isWeapon() bool {
-	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun || t == PartRattlesnakeMissile
+	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun || t == PartRattlesnakeMissile || t == PartAutoTurret
 }
 
 // isMissileWeapon reports whether a mount fires on the missile trigger and aims at
@@ -454,6 +465,8 @@ func (t PartType) fireInterval() float32 {
 		return railgunFireInterval
 	case PartRattlesnakeMissile:
 		return rattlesnakeFireInterval
+	case PartAutoTurret:
+		return autoTurretFireInterval
 	default:
 		return pdcFireInterval
 	}
@@ -469,6 +482,8 @@ func (t PartType) halfArc() float32 {
 		return railgunHalfArc
 	case PartRattlesnakeMissile:
 		return rattlesnakeHalfArc
+	case PartAutoTurret:
+		return autoTurretHalfArc
 	default:
 		return pdcHalfArc
 	}
@@ -485,6 +500,8 @@ func (t PartType) engagementRange() float32 {
 		return railgunEngagementRange
 	case PartRattlesnakeMissile:
 		return rattlesnakeEngagementRange
+	case PartAutoTurret:
+		return autoTurretEngagementRange
 	default:
 		return pdcEngagementRange
 	}
@@ -513,9 +530,16 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		// enemy PDC swats an inbound missile while its launcher stays on the target).
 		triggered := controls.Fire
 		fireTarget := controls.PDCTarget
-		if part.Type.isMissileWeapon() {
+		switch {
+		case part.Type.isMissileWeapon():
 			triggered = controls.FireMissiles
 			fireTarget = controls.MissileTarget
+		case part.Type == PartAutoTurret:
+			// An auto-turret ignores the manual triggers: it fires only while the
+			// auto-fire toggle is armed and an enemy has been found to track, aiming
+			// itself at that nearest enemy (AutoTarget) rather than at the cursor.
+			triggered = controls.AutoFire && controls.HasAutoTarget
+			fireTarget = controls.AutoTarget
 		}
 		if !triggered || part.FireCooldown > 0 {
 			// A railgun that loses its trigger (or is still on cooldown) abandons any
@@ -567,8 +591,9 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		}
 		// The AI holds its trigger continuously; each mount only opens up once the
 		// target is within its own weapon's engagement range. The player fires
-		// without this gate.
-		if controls.EnforceEngagementRange && dist > part.Type.engagementRange() {
+		// manual weapons without this gate, but an auto-turret always respects it —
+		// it only shoots when its tracked enemy is actually in range.
+		if (controls.EnforceEngagementRange || part.Type == PartAutoTurret) && dist > part.Type.engagementRange() {
 			part.RailgunCharge = 0
 			continue
 		}
@@ -615,10 +640,14 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, s.Velocity, target, aim, part.weaponDamage()))
 			continue
 		}
-		// Scatter each round within pdcSpread of the aim so sustained fire fans
-		// into a cone. The arc check above used the true aim; only the fired
-		// round is jittered.
-		fired := aim + (rand.Float32()*2-1)*pdcSpread
+		// Scatter each PDC round within pdcSpread of the aim so sustained fire fans
+		// into a cone. The arc check above used the true aim; only the fired round is
+		// jittered. An auto-turret is aimed by the computer, so it shoots straight at
+		// its tracked target with no spread.
+		fired := aim
+		if part.Type != PartAutoTurret {
+			fired += (rand.Float32()*2 - 1) * pdcSpread
+		}
 		fdx, fdy := float32(math.Sin(float64(fired))), float32(-math.Cos(float64(fired)))
 		vel := rl.NewVector2(
 			s.Velocity.X+fdx*pdcMuzzleSpeed,
