@@ -150,9 +150,6 @@ type partSpec struct {
 	health float32
 	weight float32
 	color  rl.Color
-	// price is what the part costs in the shop, and what it's worth as shop
-	// inventory. The cockpit is free (and never sold).
-	price int
 }
 
 // partWeight is the mass of a standard part. Most parts weigh the same, so a
@@ -162,16 +159,16 @@ type partSpec struct {
 const partWeight float32 = 2.0
 
 var partSpecs = map[PartType]partSpec{
-	PartCockpit: {health: 75, weight: partWeight, color: rl.SkyBlue, price: 0},
-	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray, price: 20},
+	PartCockpit: {health: 75, weight: partWeight, color: rl.SkyBlue},
+	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray},
 	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
-	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue, price: 60},
-	PartEngine: {health: 150, weight: partWeight, color: rl.Orange, price: 40},
+	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
+	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
 
-	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple, price: 40},
-	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen, price: 80},
-	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown, price: 30},
-	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon, price: 150},
+	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple},
+	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen},
+	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
+	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon},
 }
 
 func NewPart(t PartType, facing Facing) *Part {

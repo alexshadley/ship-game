@@ -89,7 +89,7 @@ func NewShop(ship *Ship, money *int, inventory map[PartType]int) *Designer {
 		shop: &ShopState{
 			money:     money,
 			inventory: inventory,
-			offers:    randomShopOffers(shopOfferCount),
+			offers:    shopOffers(),
 		},
 	}
 	d.setStatus("Buy parts, then place them on your ship", uiTextDim)
@@ -372,7 +372,7 @@ func (d *Designer) leftPanel() {
 }
 
 // shopPanel draws the storefront in the left panel: the money balance up top, the
-// three parts on sale with buy buttons, and the current inventory below.
+// fixed catalog of parts on sale with buy buttons, and the current inventory below.
 func (d *Designer) shopPanel() {
 	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
 	rl.DrawText("SHOP", 20, 20, 28, uiText)
@@ -383,10 +383,7 @@ func (d *Designer) shopPanel() {
 		o := &d.shop.offers[i]
 		r := rl.NewRectangle(16, y, dsLeftPanelW-32, 48)
 		label := fmt.Sprintf("%s  -  $%d", o.Type.String(), o.Price)
-		if o.Sold {
-			label = o.Type.String() + "  -  SOLD"
-		}
-		if uiButtonRect(r, label, 20, false) && !o.Sold {
+		if uiButtonRect(r, label, 20, false) {
 			if d.shop.buy(i) {
 				d.setStatus("Bought "+o.Type.String(), rl.Lime)
 			} else {
