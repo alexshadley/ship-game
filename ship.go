@@ -186,6 +186,7 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// A missile launcher caps the nose, firing straight ahead over the gap between
 	// the forward blocks.
 	s.AddPart(GridCoord{X: 0, Y: -3}, NewPart(PartMissileLauncher, FacingUp))
+	s.AddPart(GridCoord{X: 0, Y: -4}, NewPart(PartShield, FacingUp))
 	return s
 }
 
@@ -245,6 +246,19 @@ func (s *Ship) gridAtWorld(wp rl.Vector2) GridCoord {
 // in, or nil if the point is off the ship.
 func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
 	return s.Parts[s.gridAtWorld(wp)]
+}
+
+func (s *Ship) shieldCovering(wp rl.Vector2) *Part {
+	for c, part := range s.Parts {
+		if !part.shieldActive() {
+			continue
+		}
+		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
+		if dist(wp, center) <= shieldRadius {
+			return part
+		}
+	}
+	return nil
 }
 
 // distToCell returns the distance from world point p to the nearest point of grid
@@ -422,6 +436,20 @@ func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
 
 		rl.DrawCircleSector(center, pdcArcRadius, startDeg, endDeg, 24, fill)
 		rl.DrawCircleSectorLines(center, pdcArcRadius, startDeg, endDeg, 24, edge)
+	}
+}
+
+func (s *Ship) DrawShields() {
+	for c, part := range s.Parts {
+		if !part.shieldActive() {
+			continue
+		}
+		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
+		frac := clamp01(part.ShieldHealth / shieldMaxHealth)
+		fillA := uint8(18 + 52*frac)
+		edgeA := uint8(55 + 150*frac)
+		rl.DrawCircleV(center, shieldRadius, rl.NewColor(90, 170, 255, fillA))
+		rl.DrawCircleLines(int32(center.X), int32(center.Y), shieldRadius, rl.NewColor(120, 195, 255, edgeA))
 	}
 }
 

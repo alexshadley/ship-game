@@ -368,6 +368,12 @@ func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool 
 		if sb.ship == pr.Owner {
 			continue
 		}
+		if shield := sb.ship.shieldCovering(pr.Position); shield != nil {
+			if !p.playerInvincible(sb) {
+				shield.damageShield(pr.Damage())
+			}
+			return true
+		}
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
 			// The projectile is consumed on contact either way; in god mode the
 			// player's ship simply shrugs it off without losing health.
@@ -765,6 +771,10 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 			continue
 		}
 		survivors = append(survivors, sb)
+
+		for _, part := range sb.ship.Parts {
+			part.updateShield(float32(dt))
+		}
 
 		emitExhaust(sb.ship, sb.controls, particles)
 

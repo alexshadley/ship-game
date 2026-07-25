@@ -355,6 +355,10 @@ func main() {
 				l.Draw()
 			}
 			ship.Draw()
+			for _, e := range enemies {
+				e.DrawShields()
+			}
+			ship.DrawShields()
 			// While piloting, overlay each PDC's firing arc, lighting the ones that
 			// would bear on the cursor. Skip it on a spacewalk, when WASD/mouse drive
 			// the astronaut rather than the guns.
