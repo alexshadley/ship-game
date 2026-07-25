@@ -15,8 +15,8 @@ const (
 	// its weight (see partSpecs).
 	PartArmor
 	PartEngine
-	// PartControlThruster attaches on exactly one side; its Facing points toward
-	// that attached side, and it thrusts along the perpendicular axis.
+	// PartControlThruster attaches on one or two sides; its Facing sets the thrust
+	// axis (it thrusts along the perpendicular) and need not point at an attached side.
 	PartControlThruster
 	// PartPDC is a point-defense cannon: it slews its aim toward the ship's fire
 	// target anywhere within pdcHalfArc of its mount facing and spits short-ranged

@@ -93,8 +93,9 @@ func (s *Ship) Radius() float32 {
 }
 
 // Validate enforces the ship's structural rules: exactly one cockpit, every part
-// connected to it, and every control thruster attached on exactly one side facing
-// that attachment.
+// connected to it, and every control thruster attached on one or two sides. Its
+// Facing only sets the thrust axis (perpendicular to Facing), so it need not point
+// at an attached side.
 func (s *Ship) Validate() error {
 	cockpits := 0
 	var cockpit GridCoord
@@ -137,12 +138,8 @@ func (s *Ship) Validate() error {
 				attached++
 			}
 		}
-		if attached != 1 {
-			return fmt.Errorf("control thruster at {%d,%d} attaches on %d sides, expected exactly 1", c.X, c.Y, attached)
-		}
-		off := p.Facing.offset()
-		if _, ok := s.Parts[GridCoord{c.X + off.X, c.Y + off.Y}]; !ok {
-			return fmt.Errorf("control thruster at {%d,%d} faces %s, but no part is attached on that side", c.X, c.Y, p.Facing)
+		if attached < 1 || attached > 2 {
+			return fmt.Errorf("control thruster at {%d,%d} attaches on %d sides, expected 1 or 2", c.X, c.Y, attached)
 		}
 	}
 	return nil
