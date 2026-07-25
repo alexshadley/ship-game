@@ -7,12 +7,15 @@ import (
 type Controls struct {
 	Thrust float32
 	Turn   float32
-	// Fire holds the trigger, and FireTarget is where the ship's PDCs should
-	// aim: a world-frame offset from the ship's origin (the cockpit cell) to
-	// the aim point. The player aims at the cursor; AIs aim at their target's
+	// Fire holds the PDC trigger; FireMissiles holds the missile-launcher
+	// trigger. They fire independently so the player can loose PDCs and missiles
+	// separately (left mouse vs shift). FireTarget is where both weapon types
+	// should aim: a world-frame offset from the ship's origin (the cockpit cell)
+	// to the aim point. The player aims at the cursor; AIs aim at their target's
 	// cockpit.
-	Fire       bool
-	FireTarget rl.Vector2
+	Fire         bool
+	FireMissiles bool
+	FireTarget   rl.Vector2
 	// EnforceEngagementRange gates each weapon mount's fire on that weapon's
 	// engagement range (see PartType.engagementRange). The AI sets it so enemies
 	// hold the trigger continuously but only open up once a shot can reach; the
@@ -24,10 +27,11 @@ type Controller interface {
 	Controls(dt float32) Controls
 }
 
-// PlayerInput reads the piloting controls: WASD for thrust and turn, and the
-// held left mouse button to fire PDCs at the cursor. It needs the camera to
-// unproject the cursor into world space and the ship to express that aim point
-// relative to the ship's origin.
+// PlayerInput reads the piloting controls: WASD for thrust and turn, the held
+// left mouse button to fire PDCs at the cursor, and held shift to loose
+// missiles at the cursor. It needs the camera to unproject the cursor into
+// world space and the ship to express that aim point relative to the ship's
+// origin.
 type PlayerInput struct {
 	camera *rl.Camera2D
 	ship   *Ship
@@ -44,8 +48,9 @@ func (p PlayerInput) Controls(dt float32) Controls {
 	if rl.IsKeyDown(rl.KeyD) {
 		c.Turn += 1
 	}
-	if rl.IsMouseButtonDown(rl.MouseLeftButton) {
-		c.Fire = true
+	c.Fire = rl.IsMouseButtonDown(rl.MouseLeftButton)
+	c.FireMissiles = rl.IsKeyDown(rl.KeyLeftShift) || rl.IsKeyDown(rl.KeyRightShift)
+	if c.Fire || c.FireMissiles {
 		m := mouseWorld(*p.camera)
 		c.FireTarget = rl.NewVector2(m.X-p.ship.Position.X, m.Y-p.ship.Position.Y)
 	}
