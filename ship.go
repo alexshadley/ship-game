@@ -18,6 +18,17 @@ type Ship struct {
 	Velocity        rl.Vector2
 	AngularVelocity float32
 
+	// Energy is the ship's current power reserve. It recharges over time (see
+	// updateEnergy) and is spent firing weapons, thrusting, and by shields soaking
+	// hits. Its ceiling and recharge rate come from the ship's parts (cockpit plus
+	// any batteries and chargers); see EnergyMax and EnergyRegen.
+	Energy float32
+	// EnergyBrownout is the remaining time (seconds) the ship is browned out:
+	// draining the reserve to empty stalls all recharge for energyBrownoutDuration,
+	// so bottoming out costs a beat of dead-in-the-water downtime before power
+	// starts flowing back.
+	EnergyBrownout float32
+
 	Destroyed bool
 }
 
@@ -41,18 +52,15 @@ func (s *Ship) Cockpit() (GridCoord, bool) {
 	return GridCoord{}, false
 }
 
-// RestoreFullHealth heals every part back to its spec maximum and tops up any
-// shields, leaving the ship pristine. Used when embarking from the shop starts a
-// fresh round with the refitted ship.
+// RestoreFullHealth heals every part back to its spec maximum and refills the
+// energy reserve (which powers the shields), leaving the ship pristine. Used when
+// embarking from the shop starts a fresh round with the refitted ship.
 func (s *Ship) RestoreFullHealth() {
 	for _, p := range s.Parts {
 		p.Health = partSpecs[p.Type].health
-		if p.Type == PartShield {
-			p.ShieldHealth = p.shieldMax()
-			p.ShieldDownTimer = 0
-			p.ShieldRegenDelay = 0
-		}
 	}
+	s.Energy = s.EnergyMax()
+	s.EnergyBrownout = 0
 }
 
 func (s *Ship) Mass() float32 {
@@ -61,6 +69,94 @@ func (s *Ship) Mass() float32 {
 		total += p.Weight
 	}
 	return total
+}
+
+// EnergyMax is the most energy the ship can store: the cockpit's base reserve plus
+// each battery's contribution.
+func (s *Ship) EnergyMax() float32 {
+	var max float32
+	for _, p := range s.Parts {
+		switch p.Type {
+		case PartCockpit:
+			max += cockpitEnergyReserve
+		case PartBattery:
+			max += batteryEnergyReserve
+		}
+	}
+	return max
+}
+
+// EnergyRegen is how fast the ship's reserves refill per second: the cockpit's base
+// rate plus each charger's contribution.
+func (s *Ship) EnergyRegen() float32 {
+	var r float32
+	for _, p := range s.Parts {
+		switch p.Type {
+		case PartCockpit:
+			r += cockpitEnergyRegen
+		case PartCharger:
+			r += chargerEnergyRegen
+		}
+	}
+	return r
+}
+
+// updateEnergy recharges the reserve toward EnergyMax and clamps it there — the
+// ceiling can drop mid-fight when a battery is destroyed, so the clamp runs even
+// when nothing is charging. While browned out (the reserve was just drained to
+// empty) recharge is stalled until the timer runs down.
+func (s *Ship) updateEnergy(dt float32) {
+	max := s.EnergyMax()
+	if s.Energy > max {
+		s.Energy = max
+	}
+	if s.EnergyBrownout > 0 {
+		s.EnergyBrownout -= dt
+		if s.EnergyBrownout < 0 {
+			s.EnergyBrownout = 0
+		}
+		return
+	}
+	if s.Energy < max {
+		s.Energy += s.EnergyRegen() * dt
+		if s.Energy > max {
+			s.Energy = max
+		}
+	}
+}
+
+// spendEnergy draws amount from the reserve, clamped at zero, and reports how much
+// was actually available and spent. Bottoming the reserve out trips a brown-out:
+// recharge stalls for energyBrownoutDuration before power flows again.
+func (s *Ship) spendEnergy(amount float32) float32 {
+	if amount > s.Energy {
+		amount = s.Energy
+	}
+	s.Energy -= amount
+	if s.Energy <= 0 {
+		s.Energy = 0
+		s.EnergyBrownout = energyBrownoutDuration
+	}
+	return amount
+}
+
+// shieldBlock tries to soak a hit of the given damage landing at world point wp on
+// a shield covering it, draining ship energy to do so (see shieldEfficiency). It
+// flashes the shield and reports whether the hit was blocked. drainEnergy is false
+// in god mode, where the block still happens but costs nothing. A shield only
+// covers wp while the ship has energy (see shieldCovering), so a drained ship's
+// hull is exposed.
+func (s *Ship) shieldBlock(wp rl.Vector2, damage float32, drainEnergy bool) bool {
+	part, center := s.shieldCovering(wp)
+	if part == nil {
+		return false
+	}
+	angle := float32(math.Atan2(float64(wp.Y-center.Y), float64(wp.X-center.X)) * 180 / math.Pi)
+	part.addShieldImpact(angle)
+	if drainEnergy {
+		s.spendEnergy(damage / part.shieldEfficiency())
+	}
+	return true
 }
 
 // CenterOfMass returns the ship's weight-weighted centroid in local (cell-pixel)
@@ -200,6 +296,7 @@ func EnemyShip(pos rl.Vector2) *Ship {
 	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartSlowPDC, FacingUp))
 	// The one control thruster sticks out the far right end of the spine.
 	s.AddPart(GridCoord{X: 3, Y: 1}, NewPart(PartControlThruster, FacingLeft))
+	s.Energy = s.EnergyMax()
 	return s
 }
 
@@ -235,9 +332,15 @@ func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
 	return s.Parts[s.gridAtWorld(wp)]
 }
 
+// shieldCovering returns the shield part (and its world center) whose bubble
+// covers world point wp, or nil. A shield only counts while the ship has energy to
+// power it — a fully drained ship has no shields.
 func (s *Ship) shieldCovering(wp rl.Vector2) (*Part, rl.Vector2) {
+	if s.Energy <= 0 {
+		return nil, rl.Vector2{}
+	}
 	for c, part := range s.Parts {
-		if !part.shieldActive() {
+		if part.Type != PartShield {
 			continue
 		}
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
@@ -462,14 +565,20 @@ func (s *Ship) DrawFiringArcs(aim rl.Vector2, autoArmed bool) {
 func (s *Ship) DrawShields() {
 	const shimmerSegments = 64
 	now := float32(rl.GetTime())
+	// A shield's strength is the ship's energy fraction — the bubble dims as the
+	// reserve drains and vanishes when it's empty.
+	energyFrac := float32(0)
+	if max := s.EnergyMax(); max > 0 {
+		energyFrac = clamp01(s.Energy / max)
+	}
 	for c, part := range s.Parts {
 		if part.Type != PartShield {
 			continue
 		}
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 
-		if part.shieldActive() {
-			frac := clamp01(part.ShieldHealth / part.shieldMax())
+		if energyFrac > 0 {
+			frac := energyFrac
 			rl.DrawCircleV(center, shieldRadius, rl.NewColor(120, 180, 255, uint8(20*frac)))
 			for i := 0; i < shimmerSegments; i++ {
 				a0 := float32(i) / shimmerSegments * 360
@@ -523,7 +632,50 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
 	case PartAutoTurret:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
+	case PartBattery:
+		drawBatteryGlyph(center, baseAngle)
+	case PartCharger:
+		drawChargerGlyph(center, baseAngle)
 	}
+}
+
+// drawBatteryGlyph draws a small battery outline (a rounded cell with a terminal
+// nub) centered in a battery part, rotated into the ship's frame.
+func drawBatteryGlyph(center rl.Vector2, baseAngle float32) {
+	sin := float32(math.Sin(float64(baseAngle)))
+	cos := float32(math.Cos(float64(baseAngle)))
+	at := func(x, y float32) rl.Vector2 {
+		return rl.NewVector2(center.X+x*cos-y*sin, center.Y+x*sin+y*cos)
+	}
+	col := rl.NewColor(20, 60, 40, 255)
+	const hw, hh = cellSize * 0.26, cellSize * 0.16
+	tl, tr := at(-hw, -hh), at(hw, -hh)
+	br, bl := at(hw, hh), at(-hw, hh)
+	rl.DrawLineEx(tl, tr, 2, col)
+	rl.DrawLineEx(tr, br, 2, col)
+	rl.DrawLineEx(br, bl, 2, col)
+	rl.DrawLineEx(bl, tl, 2, col)
+	// Terminal nub off the right end.
+	rl.DrawLineEx(at(hw, -hh*0.5), at(hw+cellSize*0.06, -hh*0.5), 3, col)
+	rl.DrawLineEx(at(hw, hh*0.5), at(hw+cellSize*0.06, hh*0.5), 3, col)
+}
+
+// drawChargerGlyph draws a lightning bolt centered in a charger part, rotated into
+// the ship's frame.
+func drawChargerGlyph(center rl.Vector2, baseAngle float32) {
+	sin := float32(math.Sin(float64(baseAngle)))
+	cos := float32(math.Cos(float64(baseAngle)))
+	at := func(x, y float32) rl.Vector2 {
+		return rl.NewVector2(center.X+x*cos-y*sin, center.Y+x*sin+y*cos)
+	}
+	col := rl.NewColor(70, 60, 10, 255)
+	p1 := at(cellSize*0.10, -cellSize*0.30)
+	p2 := at(-cellSize*0.09, 0)
+	p3 := at(cellSize*0.06, 0)
+	p4 := at(-cellSize*0.10, cellSize*0.30)
+	rl.DrawLineEx(p1, p2, 3, col)
+	rl.DrawLineEx(p2, p3, 3, col)
+	rl.DrawLineEx(p3, p4, 3, col)
 }
 
 // drawHealthBar stays screen-aligned rather than rotating with the ship so it

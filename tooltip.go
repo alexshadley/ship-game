@@ -36,12 +36,23 @@ func partTooltipLines(p *Part) []tooltipLine {
 
 	lines = append(lines, tooltipLine{fmt.Sprintf("Hull %.0f / %.0f", p.Health, partSpecs[p.Type].health), uiTextDim})
 	switch {
+	case p.Type == PartRailgun:
+		lines = append(lines, tooltipLine{fmt.Sprintf("Damage %.0f (per 100 energy)", p.weaponDamage()), uiText})
+		lines = append(lines, tooltipLine{"Fires at full charge, spends all energy", uiTextDim})
 	case p.Type.isWeapon():
 		lines = append(lines, tooltipLine{fmt.Sprintf("Damage %.0f", p.weaponDamage()), uiText})
 		lines = append(lines, tooltipLine{fmt.Sprintf("Fire rate %.1f/s", 1/p.weaponFireInterval()), uiText})
+		lines = append(lines, tooltipLine{fmt.Sprintf("Energy %.1f/shot", p.Type.energyCost()), uiTextDim})
 	case p.Type == PartShield:
-		lines = append(lines, tooltipLine{fmt.Sprintf("Capacity %.0f", p.shieldMax()), uiText})
-		lines = append(lines, tooltipLine{fmt.Sprintf("Regen %.1f/s", p.shieldRegen()), uiText})
+		lines = append(lines, tooltipLine{fmt.Sprintf("Soaks %.1f dmg / energy", p.shieldEfficiency()), uiText})
+		lines = append(lines, tooltipLine{"Powered by ship energy", uiTextDim})
+	case p.Type == PartCockpit:
+		lines = append(lines, tooltipLine{fmt.Sprintf("Energy %.0f", cockpitEnergyReserve), uiText})
+		lines = append(lines, tooltipLine{fmt.Sprintf("Recharge %.0f/s", cockpitEnergyRegen), uiText})
+	case p.Type == PartBattery:
+		lines = append(lines, tooltipLine{fmt.Sprintf("+%.0f energy reserve", batteryEnergyReserve), uiText})
+	case p.Type == PartCharger:
+		lines = append(lines, tooltipLine{fmt.Sprintf("+%.0f recharge/s", chargerEnergyRegen), uiText})
 	}
 	return lines
 }

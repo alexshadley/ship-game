@@ -52,6 +52,10 @@ func partPrice(t PartType) int {
 		return 25
 	case PartAutoTurret:
 		return 18
+	case PartBattery:
+		return 12
+	case PartCharger:
+		return 14
 	default:
 		return 0
 	}
@@ -64,7 +68,7 @@ func sellPrice(t PartType) int { return partPrice(t) / 2 }
 // shopOffers is the fixed storefront: cheap unlimited blocks, PDCs and armor in
 // the middle, and missiles as the priciest option. Nothing else is sold here.
 func shopOffers() []ShopOffer {
-	types := []PartType{PartBlock, PartPDC, PartArmor, PartShield, PartMissileLauncher, PartRattlesnakeMissile, PartAutoTurret}
+	types := []PartType{PartBlock, PartPDC, PartArmor, PartShield, PartMissileLauncher, PartRattlesnakeMissile, PartAutoTurret, PartBattery, PartCharger}
 	offers := make([]ShopOffer, len(types))
 	for i, t := range types {
 		offers[i] = ShopOffer{Type: t, Price: partPrice(t)}

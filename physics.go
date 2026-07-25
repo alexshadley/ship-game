@@ -11,6 +11,17 @@ import (
 const (
 	engineThrust   = 3000.0
 	thrusterTorque = 90000.0
+	// engineEnergyDrain is the energy each engine burns per second at full throttle.
+	// It's kept conservative — well under the cockpit's base recharge — so ordinary
+	// flying is sustainable: a typical two-engine ship nets positive on the cockpit
+	// alone, and only heavily-engined hulls run a deficit without chargers. A ship
+	// with no energy left still can't thrust at all.
+	engineEnergyDrain = 10.0
+	// thrusterEnergyDrain is the energy each control thruster burns per second while
+	// turning at full input. It's light enough that a typical two-thruster ship stays
+	// break-even on the cockpit's recharge alone (turning is "free" without chargers);
+	// a browned-out ship can't steer.
+	thrusterEnergyDrain = 12.0
 	// engineStraightTolerance is how far (in world units) the combined engine
 	// thrust line may pass from the ship's center of mass and still count as
 	// "straight". Within this slack the net torque is dropped so a nearly
@@ -401,16 +412,11 @@ func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool 
 		if sb.ship == pr.Owner {
 			continue
 		}
-		if shield, center := sb.ship.shieldCovering(pr.Position); shield != nil {
-			angle := float32(math.Atan2(float64(pr.Position.Y-center.Y), float64(pr.Position.X-center.X)) * 180 / math.Pi)
-			shield.addShieldImpact(angle)
-			if !p.playerInvincible(sb) {
-				amount := pr.Damage()
-				if pr.Kind == projectileMissile {
-					amount = pr.BaseDamage
-				}
-				shield.damageShield(amount)
-			}
+		amount := pr.Damage()
+		if pr.Kind == projectileMissile {
+			amount = pr.BaseDamage
+		}
+		if sb.ship.shieldBlock(pr.Position, amount, !p.playerInvincible(sb)) {
 			if pr.Kind == projectileMissile {
 				particles.SpawnExplosion(pr.Position, missileBlastRadius)
 			}
@@ -622,6 +628,23 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 			shot.Origin.Y+dir.Y*railgunMarchStep*float32(i),
 		)
 
+		// Shields intercept the beam first: a powered shield bubble soaks the shot,
+		// draining the ship's energy, and stops the beam short of the hull.
+		hitShield := false
+		for _, sb := range p.ships {
+			if sb.ship == shot.Owner {
+				continue
+			}
+			if sb.ship.shieldBlock(sample, shot.Damage, !p.playerInvincible(sb)) {
+				end = sample
+				hitShield = true
+				break
+			}
+		}
+		if hitShield {
+			break
+		}
+
 		// Ships: the beam passes through the ship that fired it and strikes the first
 		// part of any other ship it reaches.
 		hitShip := false
@@ -636,7 +659,7 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 						part.Health = 0
 					}
 				}
-				p.applyRailgunImpact(sb.body, sample, dir)
+				p.applyRailgunImpact(sb.body, sample, dir, shot.Charge)
 				end = sample
 				hitShip = true
 				break
@@ -659,7 +682,7 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 			if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
 				continue
 			}
-			p.applyRailgunImpact(p.looseBodies[li], sample, dir)
+			p.applyRailgunImpact(p.looseBodies[li], sample, dir, shot.Charge)
 			l.Part.Health -= shot.Damage
 			if l.Part.Health <= 0 {
 				p.removeLoosePartAt(li)
@@ -678,7 +701,7 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 			dx := sample.X - a.Position.X
 			dy := sample.Y - a.Position.Y
 			if dx*dx+dy*dy <= a.Size*a.Size {
-				p.applyRailgunImpact(p.asteroidBodies[ai], sample, dir)
+				p.applyRailgunImpact(p.asteroidBodies[ai], sample, dir, shot.Charge)
 				end = sample
 				hitAsteroid = true
 				break
@@ -695,11 +718,13 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 	}
 
 	// Firing kicks the shooter back along the beam — a clean push at its center of
-	// gravity, smaller than the shove it deals.
+	// gravity, smaller than the shove it deals. Recoil scales with the charge spent,
+	// so a bigger shot kicks back harder.
 	if ownerBody != nil {
 		cog := ownerBody.LocalToWorld(ownerBody.CenterOfGravity())
+		recoil := railgunRecoilImpulse * float64(shot.Charge)
 		ownerBody.ApplyImpulseAtWorldPoint(
-			cp.Vector{X: -float64(dir.X) * railgunRecoilImpulse, Y: -float64(dir.Y) * railgunRecoilImpulse},
+			cp.Vector{X: -float64(dir.X) * recoil, Y: -float64(dir.Y) * recoil},
 			cog,
 		)
 	}
@@ -709,10 +734,12 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 
 // applyRailgunImpact shoves body along the beam direction at the world point the
 // beam struck. Applying the impulse at the hit point (not the center of gravity)
-// lets it impart spin, so a glancing hit visibly slews the target.
-func (p *Physics) applyRailgunImpact(body *cp.Body, at rl.Vector2, dir rl.Vector2) {
+// lets it impart spin, so a glancing hit visibly slews the target. The shove scales
+// with the shot's charge, so a bigger railgun hit throws the target harder.
+func (p *Physics) applyRailgunImpact(body *cp.Body, at rl.Vector2, dir rl.Vector2, charge float32) {
+	mag := railgunImpactImpulse * float64(charge)
 	body.ApplyImpulseAtWorldPoint(
-		cp.Vector{X: float64(dir.X) * railgunImpactImpulse, Y: float64(dir.Y) * railgunImpactImpulse},
+		cp.Vector{X: float64(dir.X) * mag, Y: float64(dir.Y) * mag},
 		cp.Vector{X: float64(at.X), Y: float64(at.Y)},
 	)
 }
@@ -904,7 +931,11 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		// an off-center engine layout yields a net torque and the ship rotates. Force
 		// and torque accumulate here (both are zeroed by the integrator each step) and
 		// the turn torque is added on top of whatever the engines contributed.
-		if controls.Thrust != 0 {
+		// Engines need power: a ship with no energy left can't thrust, and thrusting
+		// draws energy in proportion to how many engines push and how hard.
+		if controls.Thrust != 0 && sb.ship.Energy > 0 {
+			drain := engineEnergyDrain * float32(sb.engines) * float32(math.Abs(float64(controls.Thrust))) * float32(dt)
+			sb.ship.spendEnergy(drain)
 			// The net effect of the engines is fully described by their combined force
 			// and the torque it exerts about the center of gravity. engineForceTorqueAbout
 			// (shared with the HUD thrust-line overlay) computes both about the body's
@@ -926,7 +957,12 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 			sb.body.ApplyForceAtLocalPoint(netForce, cog)
 			sb.body.SetTorque(sb.body.Torque() + netTorque)
 		}
-		sb.body.SetTorque(sb.body.Torque() + thrusterTorque*float64(sb.thrusters)*float64(controls.Turn))
+		// Control thrusters need power too: with no energy the ship can't steer, and
+		// turning drains energy per thruster in proportion to the input.
+		if controls.Turn != 0 && sb.ship.Energy > 0 {
+			sb.ship.spendEnergy(thrusterEnergyDrain * float32(sb.thrusters) * float32(math.Abs(float64(controls.Turn))) * float32(dt))
+			sb.body.SetTorque(sb.body.Torque() + thrusterTorque*float64(sb.thrusters)*float64(controls.Turn))
+		}
 		sb.controls = controls
 	}
 
@@ -1002,6 +1038,7 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 		}
 		survivors = append(survivors, sb)
 
+		sb.ship.updateEnergy(float32(dt))
 		for _, part := range sb.ship.Parts {
 			part.updateShield(float32(dt))
 		}
