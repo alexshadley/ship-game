@@ -75,7 +75,8 @@ const (
 	// railgunWarmup is how long (seconds) a railgun mount spends charging before it
 	// looses its shot. While it charges its aim is locked and two red telegraph
 	// lines, parallel to the shot, slide together from either side; the shot fires
-	// the instant they touch on the beam line.
+	// the instant they touch on the beam line. The reserve is drained linearly across
+	// this window (see FireWeapons), so the shot lands just as the ship browns out.
 	railgunWarmup = 1.0
 	// railgunTelegraphSpread is how far to each side of the locked beam the two
 	// warm-up lines start (world px) before sliding in to meet it.
@@ -116,6 +117,15 @@ const (
 	// makes it genuinely faster than a straight missile.)
 	rattlesnakeAcceleration = missileAcceleration * 6
 	rattlesnakeCruiseSpeed  = missileCruiseSpeed * 20
+
+	// The railgun spends the ship's whole energy reserve on a shot. It only begins
+	// its warm-up once the reserve is at least railgunChargeFrac of full, drains that
+	// reserve linearly over the warm-up, and its damage and knockback scale with the
+	// energy spent relative to railgunReferenceEnergy — so a bare cockpit
+	// (railgunReferenceEnergy of reserve) fires a nominal shot, and batteries make it
+	// hit harder at the cost of a longer recharge between shots.
+	railgunChargeFrac      = 0.98
+	railgunReferenceEnergy = 100.0
 )
 
 var (
@@ -415,6 +425,9 @@ type RailgunShot struct {
 	Dir    rl.Vector2
 	Owner  *Ship
 	Damage float32
+	// Charge is the energy spent on the shot relative to railgunReferenceEnergy; the
+	// recoil and impact impulses scale by it (Damage already has it folded in).
+	Charge float32
 }
 
 // RailgunCharge is the telegraph for a railgun mount still warming up this frame:
@@ -541,10 +554,16 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			triggered = controls.AutoFire && controls.HasAutoTarget
 			fireTarget = controls.AutoTarget
 		}
-		if !triggered || part.FireCooldown > 0 {
-			// A railgun that loses its trigger (or is still on cooldown) abandons any
-			// warm-up in progress and starts over next time it lines up.
+		if !triggered {
+			// A railgun that loses its trigger abandons any warm-up in progress and
+			// starts fresh next time it lines up.
 			part.RailgunCharge = 0
+			continue
+		}
+		// The railgun uses no reload cooldown — it gates on a near-full reserve to
+		// begin its warm-up (checked where the warm-up starts, below). Every other
+		// mount holds until its own reload cooldown elapses.
+		if part.Type != PartRailgun && part.FireCooldown > 0 {
 			continue
 		}
 
@@ -554,6 +573,9 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		// follows the mount cell as the ship moves.
 		if part.Type == PartRailgun && part.RailgunCharge > 0 {
 			part.RailgunCharge += dt
+			// Bleed the captured reserve down linearly across the warm-up, so the
+			// energy bar empties in step with the converging telegraph.
+			s.spendEnergy(part.RailgunEnergy * dt / railgunWarmup)
 			center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 			// The bearing is locked relative to the ship, so re-derive the world
 			// direction from the hull's current facing — a spin swings the shot.
@@ -568,9 +590,19 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 				})
 				continue
 			}
+			// Warm-up done: dump whatever's left (tripping the brown-out) and loose the
+			// shot, its damage and knockback scaled by the reserve it consumed.
+			charge := part.RailgunEnergy / railgunReferenceEnergy
+			s.spendEnergy(s.Energy)
 			part.RailgunCharge = 0
 			part.FireCooldown = part.weaponFireInterval()
-			rails = append(rails, RailgunShot{Origin: pos, Dir: dir, Owner: s, Damage: part.weaponDamage()})
+			rails = append(rails, RailgunShot{
+				Origin: pos,
+				Dir:    dir,
+				Owner:  s,
+				Damage: part.weaponDamage() * charge,
+				Charge: charge,
+			})
 			continue
 		}
 
@@ -603,16 +635,21 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			part.RailgunCharge = 0
 			continue
 		}
-
 		dirX, dirY := dx/dist, dy/dist
 		pos := rl.NewVector2(center.X+dirX*cellSize*0.5, center.Y+dirY*cellSize*0.5)
 		if part.Type == PartRailgun {
-			// A railgun doesn't fire the instant it's ready: it locks its aim on the
-			// current target and warms up for railgunWarmup, telegraphing the shot. The
-			// locked aim is then honored by the "already warming up" block above until
-			// the beam looses; the shot itself fires from there.
+			// A railgun doesn't fire the instant it's ready: it begins a warm-up only
+			// on a near-full reserve, locks its aim on the current target, and
+			// telegraphs the shot for railgunWarmup while bleeding the reserve down.
+			// The energy captured now sets both the drain rate and the shot's power;
+			// the "already warming up" block above carries it the rest of the way.
+			if max := s.EnergyMax(); max <= 0 || s.Energy < max*railgunChargeFrac {
+				continue
+			}
 			part.RailgunAim = aim - s.Direction
+			part.RailgunEnergy = s.Energy
 			part.RailgunCharge += dt
+			s.spendEnergy(part.RailgunEnergy * dt / railgunWarmup)
 			charges = append(charges, RailgunCharge{
 				Origin:   pos,
 				Dir:      rl.NewVector2(dirX, dirY),
@@ -620,6 +657,14 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			})
 			continue
 		}
+		// Every other mount draws a fixed cost per shot; hold fire if the reserve
+		// can't cover it. The cooldown is only reset once a shot actually goes out, so
+		// a mount starved of energy fires the instant it recharges enough.
+		cost := part.Type.energyCost()
+		if s.Energy < cost {
+			continue
+		}
+		s.Energy -= cost
 		part.FireCooldown = part.weaponFireInterval()
 		if part.Type == PartMissileLauncher {
 			// A missile is self-propelled: it leaves the tube slowly along the aim
