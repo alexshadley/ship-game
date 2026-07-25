@@ -319,6 +319,7 @@ func main() {
 				}
 				if pr.Kind == projectileMissile {
 					pr.EmitExhaust(particles)
+					pr.EmitTrail(particles)
 				}
 				live = append(live, pr)
 			}

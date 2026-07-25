@@ -84,10 +84,19 @@ const (
 	rattlesnakeEngagementRange = missileEngagementRange
 	rattlesnakeDriftSpeed      = 140.0
 	rattlesnakeDriftDuration   = 0.45
-	// The booster bites harder than a straight launcher's: once it lights, the
-	// Rattlesnake builds speed at 1.5x missileAcceleration, so it makes up the
-	// ground lost to its sideways drift and closes on the target quickly.
-	rattlesnakeAcceleration = missileAcceleration * 1.5
+	// The Rattlesnake lays a smoke trail whose puffs grow with its speed: at the
+	// cruise cap each puff is sized rattlesnakeTrailScale, scaling down linearly to
+	// nothing at a standstill. Each puff lingers rattlesnakeTrailLifetime seconds.
+	rattlesnakeTrailScale    = 1.4
+	rattlesnakeTrailLifetime = 0.5
+	// The booster bites far harder than a straight launcher's, and drives the round
+	// to a far higher top speed: once it lights, the Rattlesnake builds speed at 6x
+	// missileAcceleration up to 20x the ordinary missile cruise cap, so it more than
+	// makes up the ground lost to its sideways drift and screams in on the target.
+	// (Acceleration only sets how fast it reaches the cap — the cruise speed is what
+	// makes it genuinely faster than a straight missile.)
+	rattlesnakeAcceleration = missileAcceleration * 6
+	rattlesnakeCruiseSpeed  = missileCruiseSpeed * 20
 )
 
 var (
@@ -95,8 +104,12 @@ var (
 	missileSize    = rl.NewVector2(12, 34)
 
 	// A missile reads as a grey body with a red nose cap pointed the way it flies.
-	missileBodyColor = rl.NewColor(150, 150, 158, 255)
-	missileTipColor  = rl.Red
+	// A Rattlesnake missile wears a brown cap instead, to tell it apart in flight.
+	missileBodyColor    = rl.NewColor(150, 150, 158, 255)
+	missileTipColor     = rl.Red
+	rattlesnakeTipColor = rl.NewColor(150, 90, 40, 255)
+	// The Rattlesnake's trail is a translucent brown smoke matching its nose cap.
+	rattlesnakeTrailColor = rl.NewColor(170, 120, 70, 170)
 )
 
 // ProjectileKind distinguishes an ordinary PDC round from a missile, which
@@ -153,10 +166,26 @@ type Projectile struct {
 	DriftTimer  float32
 	BoostTarget rl.Vector2
 
-	// Acceleration is how fast a missile's motor builds speed (world px/s²) toward
-	// missileCruiseSpeed. It's per-round so the Rattlesnake can boost harder than a
-	// straight launcher's missile; it's unused for PDC rounds.
+	// Acceleration and CruiseSpeed are how fast a missile's motor builds speed
+	// (world px/s²) and the top speed it builds to. They're per-round so the
+	// Rattlesnake can both boost harder and fly faster than a straight launcher's
+	// missile; both are unused for PDC rounds.
 	Acceleration float32
+	CruiseSpeed  float32
+
+	// TipColor is the missile's nose-cap color, so a Rattlesnake (brown) reads
+	// differently from a straight launcher's missile (red). Unused for PDC rounds.
+	TipColor rl.Color
+
+	// LeavesTrail marks a round that lays a lingering smoke trail as it flies (the
+	// Rattlesnake); see EmitTrail. Ordinary missiles and PDC rounds leave none.
+	LeavesTrail bool
+
+	// InheritedVel is the firing ship's velocity carried by the round, added to its
+	// self-propelled Velocity every frame so a missile fired from a moving ship keeps
+	// pace with it instead of launching from a standstill. Zero for rounds that don't
+	// inherit (ordinary missiles, PDC rounds, whose Velocity already bakes in any lead).
+	InheritedVel rl.Vector2
 }
 
 func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation, damage float32) *Projectile {
@@ -187,14 +216,17 @@ func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation, blastDamage flo
 		Health:       missileHealth,
 		BaseDamage:   blastDamage,
 		Acceleration: missileAcceleration,
+		CruiseSpeed:  missileCruiseSpeed,
+		TipColor:     missileTipColor,
 	}
 }
 
 // NewDriftMissile builds a Rattlesnake missile's two-phase flight: it starts drifting
 // sideways at driftVel (out the mount's side) for rattlesnakeDriftDuration seconds, then
-// its booster lights and drives it toward boostTarget, a fixed world point. It is
-// an ordinary missile in every other respect — same health, cruise, and detonation.
-func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vector2, rotation, blastDamage float32) *Projectile {
+// its booster lights and drives it toward boostTarget, a fixed world point. It carries
+// inherited (the firing ship's velocity) throughout so a shot from a moving ship keeps
+// pace with it. It is an ordinary missile in every other respect — health, cruise, blast.
+func NewDriftMissile(owner *Ship, pos, driftVel, inherited rl.Vector2, boostTarget rl.Vector2, rotation, blastDamage float32) *Projectile {
 	return &Projectile{
 		Position:     pos,
 		Velocity:     driftVel,
@@ -208,26 +240,29 @@ func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vecto
 		DriftTimer:   rattlesnakeDriftDuration,
 		BoostTarget:  boostTarget,
 		Acceleration: rattlesnakeAcceleration,
+		CruiseSpeed:  rattlesnakeCruiseSpeed,
+		TipColor:     rattlesnakeTipColor,
+		LeavesTrail:  true,
+		InheritedVel: inherited,
 	}
 }
 
 func (p *Projectile) Update(dt float32) {
 	if p.Kind == projectileMissile && p.DriftTimer > 0 {
-		// Drift phase: coast sideways at the launch velocity while the timer runs;
-		// no acceleration and the heading stays put (nose leads the sideways slide).
-		// When the timer expires the booster lights — swing to face the stored fire
-		// target and reset to the launch speed so the ordinary missile motor below
-		// takes over from there, driving the round in from the side.
+		// Strafe phase: the missile keeps its nose pointed at the target while side
+		// thrusters shove it laterally, so it slides out sideways without turning.
+		// Its heading tracks the target each frame (a tiny correction, since the
+		// target is far); Velocity is the fixed lateral drift. When the timer runs
+		// out the booster lights along that already-forward heading — no turn — and
+		// the ordinary missile motor below drives it in.
 		p.DriftTimer -= dt
-		p.Position.X += p.Velocity.X * dt
-		p.Position.Y += p.Velocity.Y * dt
+		if dx, dy := p.BoostTarget.X-p.Position.X, p.BoostTarget.Y-p.Position.Y; dx != 0 || dy != 0 {
+			p.Rotation = heading(dx, dy)
+		}
+		p.Position.X += (p.Velocity.X + p.InheritedVel.X) * dt
+		p.Position.Y += (p.Velocity.Y + p.InheritedVel.Y) * dt
 		p.Lifespan -= dt
 		if p.DriftTimer <= 0 {
-			dx := p.BoostTarget.X - p.Position.X
-			dy := p.BoostTarget.Y - p.Position.Y
-			if dx != 0 || dy != 0 {
-				p.Rotation = heading(dx, dy)
-			}
 			fx, fy := p.forward()
 			p.Velocity = rl.NewVector2(fx*missileLaunchSpeed, fy*missileLaunchSpeed)
 		}
@@ -240,15 +275,15 @@ func (p *Projectile) Update(dt float32) {
 		speed := float32(math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y)))
 		if speed > 0 {
 			newSpeed := speed + p.Acceleration*dt
-			if newSpeed > missileCruiseSpeed {
-				newSpeed = missileCruiseSpeed
+			if newSpeed > p.CruiseSpeed {
+				newSpeed = p.CruiseSpeed
 			}
 			scale := newSpeed / speed
 			p.Velocity.X *= scale
 			p.Velocity.Y *= scale
 		}
-		p.Position.X += p.Velocity.X * dt
-		p.Position.Y += p.Velocity.Y * dt
+		p.Position.X += (p.Velocity.X + p.InheritedVel.X) * dt
+		p.Position.Y += (p.Velocity.Y + p.InheritedVel.Y) * dt
 		p.Lifespan -= dt
 		return
 	}
@@ -288,8 +323,8 @@ func (p *Projectile) Draw() {
 	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, rl.Yellow)
 }
 
-// drawMissile renders the missile as a grey body with a short red nose cap on
-// the leading end (the end pointing along its heading).
+// drawMissile renders the missile as a grey body with a short nose cap (its
+// TipColor) on the leading end (the end pointing along its heading).
 func (p *Projectile) drawMissile() {
 	deg := p.Rotation * 180 / math.Pi
 
@@ -304,7 +339,7 @@ func (p *Projectile) drawMissile() {
 		p.Position.Y+fy*(p.Size.Y/2-tipLen/2),
 	)
 	tip := rl.NewRectangle(tipCenter.X, tipCenter.Y, p.Size.X, tipLen)
-	rl.DrawRectanglePro(tip, rl.NewVector2(p.Size.X/2, tipLen/2), deg, missileTipColor)
+	rl.DrawRectanglePro(tip, rl.NewVector2(p.Size.X/2, tipLen/2), deg, p.TipColor)
 }
 
 // forward is the unit vector pointing along the missile's heading.
@@ -312,13 +347,44 @@ func (p *Projectile) forward() (float32, float32) {
 	return float32(math.Sin(float64(p.Rotation))), -float32(math.Cos(float64(p.Rotation)))
 }
 
-// EmitExhaust spawns a small exhaust plume out the missile's tail, drifting with
-// the missile the way an engine plume drifts with its ship.
+// EmitExhaust spawns a small exhaust plume that drifts with the missile the way an
+// engine plume drifts with its ship. A missile under power vents out its tail; a
+// Rattlesnake still strafing vents out its side instead — the little side thruster
+// that shoves it laterally — so the plume reads off the flank, not the tail.
 func (p *Projectile) EmitExhaust(ps *ParticleSystem) {
+	// The plume drifts with the missile's true world velocity (self-propelled plus
+	// any inherited ship velocity); the vent direction below keys off the
+	// self-propelled velocity/heading so a moving launch doesn't skew the nozzle.
+	worldVel := rl.NewVector2(p.Velocity.X+p.InheritedVel.X, p.Velocity.Y+p.InheritedVel.Y)
+	if p.DriftTimer > 0 {
+		speed := float32(math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y)))
+		if speed > 0 {
+			ux, uy := p.Velocity.X/speed, p.Velocity.Y/speed
+			pos := rl.NewVector2(p.Position.X-ux*p.Size.X/2, p.Position.Y-uy*p.Size.X/2)
+			ps.EmitMissile(pos, rl.NewVector2(-ux, -uy), worldVel)
+		}
+		return
+	}
 	fx, fy := p.forward()
 	pos := rl.NewVector2(p.Position.X-fx*p.Size.Y/2, p.Position.Y-fy*p.Size.Y/2)
 	dir := rl.NewVector2(-fx, -fy)
-	ps.EmitMissile(pos, dir, p.Velocity)
+	ps.EmitMissile(pos, dir, worldVel)
+}
+
+// EmitTrail drops a lingering smoke puff at the round's position, sized in
+// proportion to its current speed (full size at the missile cruise cap, nothing at
+// a standstill), so a Rattlesnake lays a fatter trail the faster it flies. Rounds
+// that don't leave a trail (ordinary missiles, PDC rounds) do nothing here.
+func (p *Projectile) EmitTrail(ps *ParticleSystem) {
+	if !p.LeavesTrail {
+		return
+	}
+	speed := float32(math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y)))
+	frac := speed / p.CruiseSpeed
+	if frac > 1 {
+		frac = 1
+	}
+	ps.EmitTrail(p.Position, rattlesnakeTrailColor, rattlesnakeTrailLifetime, frac*rattlesnakeTrailScale)
 }
 
 // RailgunShot is one hitscan shot a railgun mount loosed this frame: a straight
@@ -485,7 +551,7 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			rx, ry := float32(math.Sin(float64(right))), float32(-math.Cos(float64(right)))
 			launchPos := rl.NewVector2(center.X+rx*cellSize*0.5, center.Y+ry*cellSize*0.5)
 			driftVel := rl.NewVector2(rx*rattlesnakeDriftSpeed, ry*rattlesnakeDriftSpeed)
-			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, target, right, part.weaponDamage()))
+			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, s.Velocity, target, aim, part.weaponDamage()))
 			continue
 		}
 		// Scatter each round within pdcSpread of the aim so sustained fire fans
