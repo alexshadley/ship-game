@@ -76,7 +76,7 @@ func (ai *EnemyAI) DrawDebug() {
 const (
 	// enemySpawnRadius sits well beyond the piloting view's visible corner so
 	// enemies always arrive from offscreen.
-	enemySpawnRadius   = 2400
+	enemySpawnRadius   = 3600
 	enemySpawnInterval = 30
 )
 
