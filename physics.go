@@ -38,11 +38,13 @@ const (
 	// part (nearest point at the center) takes full damage. The same falloff
 	// scales missileBlastImpulse, the knockback that shoves bodies away from the
 	// blast. missileInterceptRadius is how close a PDC round must pass to a missile
-	// to damage it in flight.
+	// to damage it in flight. missileCollideRadius is how close two opposing
+	// missiles must pass for them to strike each other and both detonate.
 	missileBlastDamage     = 90.0
 	missileBlastRadius     = 3 * cellSize
 	missileBlastImpulse    = 6000.0
 	missileInterceptRadius = 18.0
+	missileCollideRadius   = 22.0
 )
 
 const (
@@ -338,6 +340,29 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 				p.DetonateMissile(m, particles)
 				break
 			}
+		}
+	}
+
+	// Missile-on-missile: two missiles from different ships that pass within
+	// missileCollideRadius strike each other and both detonate on the spot, so an
+	// inbound missile can be knocked out by another mid-flight. A ship's own
+	// missiles pass through one another so a salvo doesn't self-destruct.
+	for i, a := range projectiles {
+		if a.Kind != projectileMissile || consumed[a] {
+			continue
+		}
+		for _, b := range projectiles[i+1:] {
+			if b.Kind != projectileMissile || consumed[b] || b.Owner == a.Owner {
+				continue
+			}
+			if dist(a.Position, b.Position) > missileCollideRadius {
+				continue
+			}
+			consumed[a] = true
+			consumed[b] = true
+			p.DetonateMissile(a, particles)
+			p.DetonateMissile(b, particles)
+			break
 		}
 	}
 
