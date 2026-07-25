@@ -4,9 +4,10 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-// The menu and designer draw directly to the window at full resolution (unlike
-// the game world, which renders through a 640x360 texture), so their mouse math
-// and text stay crisp. These helpers hand-roll the few widgets they need.
+// The menu and designer lay out at the logical UI resolution (windowWidth×
+// windowHeight) and render through a texture that's scaled to fit the window, so
+// mouse positions are mapped back into that logical space via uiMouse. These
+// helpers hand-roll the few widgets they need.
 
 var (
 	uiPanel     = rl.NewColor(24, 28, 36, 255)
@@ -18,7 +19,7 @@ var (
 )
 
 func mouseIn(r rl.Rectangle) bool {
-	return rl.CheckCollisionPointRec(rl.GetMousePosition(), r)
+	return rl.CheckCollisionPointRec(uiMouse(), r)
 }
 
 // uiButtonRect draws a labeled button and reports whether it was clicked this

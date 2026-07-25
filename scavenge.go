@@ -49,11 +49,10 @@ type Scavenger struct {
 }
 
 // mouseWorld converts the OS mouse position into world coordinates, accounting
-// for the render texture being drawn at gameWidth×gameHeight and scaled up to the
-// window, then unprojecting through the game camera.
+// for the render texture being drawn at gameWidth×gameHeight and scaled into the
+// letterboxed viewport, then unprojecting through the game camera.
 func mouseWorld(camera rl.Camera2D) rl.Vector2 {
-	m := rl.GetMousePosition()
-	tex := rl.NewVector2(m.X*float32(gameWidth)/windowWidth, m.Y*float32(gameHeight)/windowHeight)
+	tex := toLogical(rl.GetMousePosition(), gameWidth, gameHeight)
 	return rl.GetScreenToWorld2D(tex, camera)
 }
 

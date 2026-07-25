@@ -286,7 +286,7 @@ func (d *Designer) gridRegion() rl.Rectangle {
 }
 
 func (d *Designer) hoveredCell() GridCoord {
-	w := rl.GetScreenToWorld2D(rl.GetMousePosition(), d.camera)
+	w := rl.GetScreenToWorld2D(uiMouse(), d.camera)
 	return GridCoord{
 		X: int(math.Round(float64(w.X / cellSize))),
 		Y: int(math.Round(float64(w.Y / cellSize))),
