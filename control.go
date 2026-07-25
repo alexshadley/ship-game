@@ -24,6 +24,15 @@ type Controls struct {
 	// hold the trigger continuously but only open up once a shot can reach; the
 	// player fires freely.
 	EnforceEngagementRange bool
+
+	// AutoFire arms the auto-turrets (PartAutoTurret), which ignore the Fire and
+	// FireMissiles triggers above. While AutoFire is set and HasAutoTarget is true
+	// each auto-turret slews onto AutoTarget — a world-frame offset from the ship
+	// origin to the nearest enemy — and fires on its own. The player flips AutoFire
+	// with a hotkey; the enemy AI leaves it on and points it at the player.
+	AutoFire      bool
+	HasAutoTarget bool
+	AutoTarget    rl.Vector2
 }
 
 type Controller interface {
@@ -38,6 +47,12 @@ type Controller interface {
 type PlayerInput struct {
 	camera *rl.Camera2D
 	ship   *Ship
+	// autoFire is the shared auto-turret toggle, flipped by a hotkey in the game
+	// loop. While set, the ship's auto-turrets track and fire on the nearest enemy
+	// on their own; enemies returns the current enemy ships to pick that target
+	// from. Both may be nil (e.g. an enemy or a test ship has no auto-turret UI).
+	autoFire *bool
+	enemies  func() []*Ship
 }
 
 func (p PlayerInput) Controls(dt float32) Controls {
@@ -60,7 +75,38 @@ func (p PlayerInput) Controls(dt float32) Controls {
 		c.PDCTarget = aim
 		c.MissileTarget = aim
 	}
+	// Auto-turrets aim themselves at the nearest enemy while the toggle is armed,
+	// independent of the mouse triggers above.
+	if p.autoFire != nil && *p.autoFire {
+		c.AutoFire = true
+		if p.enemies != nil {
+			if tp, ok := nearestShip(p.ship.Position, p.enemies()); ok {
+				c.AutoTarget = rl.NewVector2(tp.X-p.ship.Position.X, tp.Y-p.ship.Position.Y)
+				c.HasAutoTarget = true
+			}
+		}
+	}
 	return c
+}
+
+// nearestShip returns the position of the ship in candidates closest to origin,
+// skipping any that are nil or already destroyed. Auto-turrets use it to lock
+// onto the nearest enemy.
+func nearestShip(origin rl.Vector2, candidates []*Ship) (rl.Vector2, bool) {
+	var best rl.Vector2
+	found := false
+	var bestDist float32
+	for _, s := range candidates {
+		if s == nil || s.Destroyed {
+			continue
+		}
+		if d := dist(origin, s.Position); !found || d < bestDist {
+			bestDist = d
+			best = s.Position
+			found = true
+		}
+	}
+	return best, found
 }
 
 type PilotInput struct {

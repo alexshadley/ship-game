@@ -135,9 +135,23 @@ func main() {
 	// ranges and the goal heading its AI is steering toward.
 	aiDebug := false
 
+	// autoWeapons is the auto-turret toggle (hotkey T while piloting). While on, the
+	// player's auto-turrets track and fire on the nearest enemy on their own.
+	autoWeapons := false
+
+	// Enemies arrive from offscreen (spawned below); declared up here so the
+	// player's auto-turrets can pick their nearest-enemy target from the live list.
+	var enemies []*Ship
+	var enemyAIs []*EnemyAI
+
 	physics.AddShip(ship, PilotInput{
 		spacewalking: &spacewalking,
-		player:       PlayerInput{camera: &camera, ship: ship},
+		player: PlayerInput{
+			camera:   &camera,
+			ship:     ship,
+			autoFire: &autoWeapons,
+			enemies:  func() []*Ship { return enemies },
+		},
 	})
 
 	var projectiles []*Projectile
@@ -160,9 +174,8 @@ func main() {
 	}
 
 	// Enemies arrive from offscreen: one at the start, then another every
-	// enemySpawnInterval seconds.
-	var enemies []*Ship
-	var enemyAIs []*EnemyAI
+	// enemySpawnInterval seconds. (enemies/enemyAIs are declared above so the
+	// player's auto-turrets can read the live list.)
 	spawnEnemy := func() {
 		e, ai := SpawnEnemy(ship, playerThreats)
 		physics.AddShip(e, ai)
@@ -260,6 +273,12 @@ func main() {
 			// Toggle debug god mode (player ship invincible) with G.
 			if rl.IsKeyPressed(rl.KeyG) {
 				godMode = !godMode
+			}
+
+			// T arms/disarms the auto-turrets: while on, PartAutoTurret mounts
+			// track and fire on the nearest enemy without the manual trigger.
+			if rl.IsKeyPressed(rl.KeyT) {
+				autoWeapons = !autoWeapons
 			}
 
 			// Periodically send in another enemy from beyond the edge of the view.
@@ -414,7 +433,7 @@ func main() {
 			// would bear on the cursor. Skip it on a spacewalk, when WASD/mouse drive
 			// the astronaut rather than the guns.
 			if !spacewalking {
-				ship.DrawFiringArcs(mouseWorld(camera))
+				ship.DrawFiringArcs(mouseWorld(camera), autoWeapons)
 			}
 			// Projectiles draw after the ships so they read as flying over them.
 			for _, pr := range projectiles {
@@ -438,7 +457,11 @@ func main() {
 			rl.EndMode2D()
 
 			var minimapPlayer *Player
-			hint := "hold LMB: fire PDCs  ·  F: spacewalk  ·  -/=: zoom"
+			autoHint := "T: auto-turrets"
+			if autoWeapons {
+				autoHint = "T: auto-turrets (ON)"
+			}
+			hint := "hold LMB: fire PDCs  ·  " + autoHint + "  ·  F: spacewalk  ·  -/=: zoom"
 			if spacewalking {
 				minimapPlayer = &player
 				hint = "WASD: move  ·  hold LMB: grab / pry off part  ·  hold RMB: repair"

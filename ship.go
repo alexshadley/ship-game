@@ -367,14 +367,32 @@ const pdcArcRadius = cellSize * 4
 // point falls within its arc — the mounts that would actually fire — is drawn
 // lit; the rest are dim. This mirrors the bearing test in FireWeapons. PDCs and
 // missile launchers get distinct colors so the two weapon groups read apart.
-func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
+// autoArmed is the state of the player's auto-turret toggle, which lights the
+// coverage ring auto-turrets show in place of a cursor-aimed wedge.
+func (s *Ship) DrawFiringArcs(aim rl.Vector2, autoArmed bool) {
 	for c, part := range s.Parts {
 		if !part.Type.isWeapon() {
 			continue
 		}
 
-		halfArc := float64(part.Type.halfArc())
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
+
+		// An auto-turret slews a full circle and tracks on its own, so it shows a
+		// coverage ring rather than a cursor-aimed wedge — dim when the toggle is
+		// off, lit teal when it's armed.
+		if part.Type == PartAutoTurret {
+			fill := rl.NewColor(80, 200, 160, 16)
+			edge := rl.NewColor(80, 200, 160, 70)
+			if autoArmed {
+				fill = rl.NewColor(90, 230, 180, 40)
+				edge = rl.NewColor(120, 245, 200, 175)
+			}
+			rl.DrawCircleV(center, pdcArcRadius, fill)
+			rl.DrawCircleLines(int32(center.X), int32(center.Y), pdcArcRadius, edge)
+			continue
+		}
+
+		halfArc := float64(part.Type.halfArc())
 		mount := s.Direction + part.Facing.angle()
 
 		// A mount lights up when it can bear on the cursor — the same arc check
@@ -480,6 +498,8 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
 	case PartRailgun:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.DarkGray)
+	case PartAutoTurret:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
 	}
 }
 
