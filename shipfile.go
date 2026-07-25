@@ -120,14 +120,16 @@ func LoadShipFile(path string, pos rl.Vector2) (*Ship, error) {
 	return DesignToShip(d, pos), nil
 }
 
-// LoadPlayerShip loads the player's design from ships/player.json, falling back
-// to the built-in DefaultShip if the file is missing or invalid.
-func LoadPlayerShip(pos rl.Vector2) *Ship {
+// LoadPlayerShip loads the player's design from ships/player.json.
+func LoadPlayerShip(pos rl.Vector2) (*Ship, error) {
 	ship, err := LoadShipFile(filepath.Join(shipsDir, "player.json"), pos)
-	if err != nil || ship.Validate() != nil {
-		return DefaultShip(pos)
+	if err != nil {
+		return nil, err
 	}
-	return ship
+	if err := ship.Validate(); err != nil {
+		return nil, err
+	}
+	return ship, nil
 }
 
 // SaveShipFile writes ship to shipsDir under name (a ".json" suffix is added if

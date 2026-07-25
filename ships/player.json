@@ -21,8 +21,9 @@
     {
       "x": 0,
       "y": -2,
-      "type": "Railgun",
-      "facing": "Up"
+      "type": "Missile Launcher",
+      "facing": "Up",
+      "level": 2
     },
     {
       "x": 1,
