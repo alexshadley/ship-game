@@ -119,6 +119,17 @@ func main() {
 	var menu Menu
 	var designer *Designer
 
+	// The player's wallet and the parts they own. Both are shared with the shop
+	// (by pointer / by reference), so buying and fitting parts there carries back
+	// into the running game. Start with a little seed money and a few basic parts.
+	money := 500
+	inventory := map[PartType]int{
+		PartBlock:  6,
+		PartEngine: 2,
+		PartArmor:  2,
+		PartPDC:    1,
+	}
+
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 
@@ -134,6 +145,9 @@ func main() {
 			case MenuOpenDesigner:
 				designer = NewDesigner()
 				state = StateDesigner
+			case MenuOpenShop:
+				designer = NewShop(ship, &money, inventory)
+				state = StateShop
 			case MenuQuit:
 				return
 			}
@@ -321,6 +335,10 @@ func main() {
 				}
 			}
 			DrawMinimap(ship, asteroids, enemies, projectiles, physics.LooseParts(), minimapPlayer)
+			// Player's money, top-right corner.
+			moneyText := fmt.Sprintf("$%d", money)
+			mw := rl.MeasureText(moneyText, 10)
+			rl.DrawText(moneyText, gameWidth-mw-6, 6, 10, rl.Gold)
 			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
 			// While out on a walk, show the astronaut's health as a top-left readout.
 			if spacewalking {
@@ -355,6 +373,13 @@ func main() {
 			}
 		case StateDesigner:
 			if designer.Frame() {
+				state = StateMenu
+			}
+		case StateShop:
+			if designer.Frame() {
+				// The shop edited the live ship's parts; regenerate its physics body
+				// so the changes take effect back in the game.
+				physics.RebuildShipBody(ship)
 				state = StateMenu
 			}
 		}

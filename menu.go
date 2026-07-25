@@ -10,6 +10,7 @@ const (
 	MenuNone MenuAction = iota
 	MenuResume
 	MenuOpenDesigner
+	MenuOpenShop
 	MenuQuit
 )
 
@@ -25,6 +26,7 @@ type menuItem struct {
 var menuItems = []menuItem{
 	{"Resume", MenuResume},
 	{"Ship Designer", MenuOpenDesigner},
+	{"Shop", MenuOpenShop},
 	{"Quit", MenuQuit},
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -29,6 +30,11 @@ type Designer struct {
 	// armed gates grid editing until the mouse button has been released once, so
 	// the click that opened the designer from the menu doesn't also place a part.
 	armed bool
+
+	// shop is non-nil when the designer is opened as the shop: it edits the live
+	// player ship directly, parts come from a limited inventory rather than an
+	// endless palette, and the left panel sells parts for money. See NewShop.
+	shop *ShopState
 }
 
 const (
@@ -62,6 +68,31 @@ func NewDesigner() *Designer {
 	} else {
 		d.newShip()
 	}
+	return d
+}
+
+// NewShop opens the designer in shop mode against the live player ship. Money and
+// inventory are shared with the caller (the running game), so purchases and part
+// placements persist after the shop closes. Unlike the plain designer it doesn't
+// touch ship files: it edits ship in place and never saves.
+func NewShop(ship *Ship, money *int, inventory map[PartType]int) *Designer {
+	d := &Designer{
+		camera: rl.Camera2D{
+			Target: rl.NewVector2(0, 0),
+			Offset: rl.NewVector2(dsLeftPanelW+(dsRightPanel-dsLeftPanelW)/2, dsTopBar+(windowHeight-dsTopBar-dsBottomBar)/2),
+			Zoom:   1.6,
+		},
+		selType:   PartBlock,
+		selFacing: FacingUp,
+		ship:      ship,
+		name:      "Your Ship",
+		shop: &ShopState{
+			money:     money,
+			inventory: inventory,
+			offers:    randomShopOffers(shopOfferCount),
+		},
+	}
+	d.setStatus("Buy parts, then place them on your ship", uiTextDim)
 	return d
 }
 
@@ -139,7 +170,11 @@ func (d *Designer) Frame() bool {
 	d.drawGrid()
 	d.leftPanel()
 	d.rightPanel(&exit)
-	d.drawNameField()
+	if d.shop == nil {
+		d.drawNameField()
+	} else {
+		rl.DrawText("Outfitting: "+d.name, dsLeftPanelW+40, 22, 24, uiText)
+	}
 	d.drawHint()
 
 	return exit
@@ -193,10 +228,43 @@ func (d *Designer) updateGridEdit() {
 		return
 	}
 	c := d.hoveredCell()
+	if d.shop != nil {
+		d.updateShopGridEdit(c)
+		return
+	}
 	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
 		d.ship.Parts[c] = NewPart(d.selType, d.selFacing)
 	}
 	if rl.IsMouseButtonPressed(rl.MouseRightButton) {
+		delete(d.ship.Parts, c)
+	}
+}
+
+// updateShopGridEdit is the shop's grid editing: placing a part spends one from
+// inventory and removing it returns it there, so the palette counts stay honest.
+// The cockpit is fixed — it can't be placed (never in inventory) or removed.
+func (d *Designer) updateShopGridEdit(c GridCoord) {
+	inv := d.shop.inventory
+	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		if inv[d.selType] <= 0 {
+			d.setStatus("No "+d.selType.String()+" in inventory - buy one first", rl.Red)
+			return
+		}
+		if existing, ok := d.ship.Parts[c]; ok {
+			if existing.Type == PartCockpit {
+				return // never build over the cockpit
+			}
+			inv[existing.Type]++ // the part being replaced goes back to inventory
+		}
+		inv[d.selType]--
+		d.ship.Parts[c] = NewPart(d.selType, d.selFacing)
+	}
+	if rl.IsMouseButtonPressed(rl.MouseRightButton) {
+		existing, ok := d.ship.Parts[c]
+		if !ok || existing.Type == PartCockpit {
+			return
+		}
+		inv[existing.Type]++
 		delete(d.ship.Parts, c)
 	}
 }
@@ -277,8 +345,13 @@ func balanceColor(tl engineThrustLine) rl.Color {
 	return unbalancedColor
 }
 
-// leftPanel draws the ship-file list and handles selecting/creating designs.
+// leftPanel draws the ship-file list and handles selecting/creating designs. In
+// shop mode it shows the storefront instead.
 func (d *Designer) leftPanel() {
+	if d.shop != nil {
+		d.shopPanel()
+		return
+	}
 	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
 	rl.DrawText("SHIPS", 20, 20, 28, uiText)
 
@@ -298,6 +371,50 @@ func (d *Designer) leftPanel() {
 	}
 }
 
+// shopPanel draws the storefront in the left panel: the money balance up top, the
+// three parts on sale with buy buttons, and the current inventory below.
+func (d *Designer) shopPanel() {
+	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
+	rl.DrawText("SHOP", 20, 20, 28, uiText)
+	rl.DrawText(fmt.Sprintf("Money: $%d", *d.shop.money), 20, 56, 24, uiAccent)
+
+	y := float32(100)
+	for i := range d.shop.offers {
+		o := &d.shop.offers[i]
+		r := rl.NewRectangle(16, y, dsLeftPanelW-32, 48)
+		label := fmt.Sprintf("%s  -  $%d", o.Type.String(), o.Price)
+		if o.Sold {
+			label = o.Type.String() + "  -  SOLD"
+		}
+		if uiButtonRect(r, label, 20, false) && !o.Sold {
+			if d.shop.buy(i) {
+				d.setStatus("Bought "+o.Type.String(), rl.Lime)
+			} else {
+				d.setStatus("Not enough money for "+o.Type.String(), rl.Red)
+			}
+		}
+		rl.DrawRectangle(24, int32(y+16), 16, 16, partSpecs[o.Type].color)
+		y += 56
+	}
+
+	y += 12
+	rl.DrawText("INVENTORY", 20, int32(y), 24, uiText)
+	y += 34
+	empty := true
+	for _, t := range palettePartTypes {
+		if t == PartCockpit || d.shop.inventory[t] <= 0 {
+			continue
+		}
+		empty = false
+		rl.DrawRectangle(24, int32(y+3), 14, 14, partSpecs[t].color)
+		rl.DrawText(fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t]), 46, int32(y), 20, uiText)
+		y += 28
+	}
+	if empty {
+		rl.DrawText("(empty - buy some parts)", 24, int32(y), 18, uiTextDim)
+	}
+}
+
 func (d *Designer) rightPanel(exit *bool) {
 	rl.DrawRectangle(dsRightPanel, 0, dsRightW, windowHeight, uiPanel)
 	x := float32(dsRightPanel + 16)
@@ -307,7 +424,16 @@ func (d *Designer) rightPanel(exit *bool) {
 	y := float32(60)
 	for _, t := range palettePartTypes {
 		r := rl.NewRectangle(x, y, w, 40)
-		if uiButtonRect(r, t.String(), 20, d.selType == t) {
+		label := t.String()
+		if d.shop != nil {
+			// In the shop the palette is bounded by what the player owns; the count
+			// rides on the button and the cockpit (which can't be placed) is skipped.
+			if t == PartCockpit {
+				continue
+			}
+			label = fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t])
+		}
+		if uiButtonRect(r, label, 20, d.selType == t) {
 			d.selType = t
 		}
 		// Part color swatch on the left edge of the button.
@@ -352,13 +478,20 @@ func (d *Designer) rightPanel(exit *bool) {
 	rl.DrawText(status, int32(x), int32(y), 20, col)
 
 	// Actions pinned to the bottom.
+	backLabel := "Back to Menu (Esc)"
+	if d.shop != nil {
+		backLabel = "Leave Shop (Esc)"
+	}
 	backBtn := rl.NewRectangle(x, windowHeight-70, w, 40)
-	if uiButtonRect(backBtn, "Back to Menu (Esc)", 20, false) {
+	if uiButtonRect(backBtn, backLabel, 20, false) {
 		*exit = true
 	}
-	saveBtn := rl.NewRectangle(x, windowHeight-120, w, 40)
-	if uiButtonRect(saveBtn, "Save", 22, false) {
-		d.save()
+	// The shop edits the live ship in place; there's nothing to save to a file.
+	if d.shop == nil {
+		saveBtn := rl.NewRectangle(x, windowHeight-120, w, 40)
+		if uiButtonRect(saveBtn, "Save", 22, false) {
+			d.save()
+		}
 	}
 	if d.status != "" {
 		drawWrappedText(d.status, int32(x), windowHeight-165, int(w), 16, d.statusColor)
@@ -396,6 +529,9 @@ func (d *Designer) drawHint() {
 		partKeys = "1-" + strconv.Itoa(n)
 	}
 	hint := "Left-click: place  ·  Right-click: remove  ·  " + partKeys + ": part  ·  R: rotate  ·  Wheel: zoom"
+	if d.shop != nil {
+		hint = "Left-click: place (uses inventory)  ·  Right-click: remove (to inventory)  ·  R: rotate  ·  Wheel: zoom"
+	}
 	rl.DrawText(hint, dsLeftPanelW+20, windowHeight-28, 18, uiTextDim)
 }
 
