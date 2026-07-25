@@ -26,7 +26,7 @@ const (
 	// most zoomed-in you can get and the wheel only pulls the camera back out.
 	pilotZoomMin  = 0.1
 	pilotZoomMax  = pilotingZoom
-	pilotZoomStep = 0.04
+	pilotZoomStep = 0.005
 
 	// A stage lasts this many seconds; survive to the end to clear it.
 	stageDuration = 180.0
@@ -71,9 +71,12 @@ func main() {
 	var repair RepairTool
 	spacewalking := false
 
-	// User-controlled piloting zoom, nudged by the scroll wheel. The camera eases
-	// toward this while piloting; spacewalks use their own fixed framing.
+	// User-controlled piloting zoom, nudged by the scroll wheel. Scroll changes
+	// snap in instantly; only entering/exiting the ship eases the zoom smoothly
+	// between the piloting and spacewalk framing (tracked by zoomEasing).
 	pilotZoom := float32(pilotingZoom)
+	prevSpacewalking := spacewalking
+	zoomEasing := false
 
 	// Set once the astronaut's health runs out on a spacewalk. The simulation
 	// freezes and a GAME OVER banner takes over the HUD.
@@ -235,7 +238,22 @@ func main() {
 			if spacewalking {
 				targetZoom = spacewalkZoom
 			}
-			camera.Zoom += (targetZoom - camera.Zoom) * float32(1-math.Exp(-zoomEaseSpeed*float64(dt)))
+			// Entering/exiting the ship changes the framing mode: ease smoothly
+			// across that transition. Scroll-wheel zoom changes, by contrast, snap
+			// in abruptly.
+			if spacewalking != prevSpacewalking {
+				zoomEasing = true
+			}
+			prevSpacewalking = spacewalking
+			if zoomEasing {
+				camera.Zoom += (targetZoom - camera.Zoom) * float32(1-math.Exp(-zoomEaseSpeed*float64(dt)))
+				if math.Abs(float64(targetZoom-camera.Zoom)) < 0.001 {
+					camera.Zoom = targetZoom
+					zoomEasing = false
+				}
+			} else {
+				camera.Zoom = targetZoom
+			}
 
 			var followPoint rl.Vector2
 			if spacewalking {
