@@ -81,9 +81,9 @@ func main() {
 	uiTarget := rl.LoadRenderTexture(windowWidth, windowHeight)
 	defer rl.UnloadRenderTexture(uiTarget)
 
-	ship := LoadPlayerShip(rl.NewVector2(0, 0))
-	if err := ship.Validate(); err != nil {
-		log.Printf("player ship is invalid: %v", err)
+	ship, err := LoadPlayerShip(rl.NewVector2(0, 0))
+	if err != nil {
+		log.Fatalf("failed to load player ship: %v", err)
 	}
 
 	// Target is nudged up half a cell because the ship's body extends forward of

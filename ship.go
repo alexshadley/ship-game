@@ -163,32 +163,8 @@ func (s *Ship) connectedParts(cockpit GridCoord) map[GridCoord]bool {
 	return seen
 }
 
-func DefaultShip(pos rl.Vector2) *Ship {
-	s := NewShip(pos)
-	s.AddPart(GridCoord{X: 0, Y: 0}, NewPart(PartCockpit, FacingUp))
-	s.AddPart(GridCoord{X: 0, Y: -1}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 0, Y: -2}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: -1, Y: 0}, NewPart(PartBlock, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: 0}, NewPart(PartBlock, FacingUp))
-	// Engines flank the rear; the cell directly behind the cockpit ({0,1}) is left
-	// empty so the pilot can climb out to spacewalk.
-	s.AddPart(GridCoord{X: -1, Y: 1}, NewPart(PartEngine, FacingDown))
-	s.AddPart(GridCoord{X: 1, Y: 1}, NewPart(PartEngine, FacingDown))
-	s.AddPart(GridCoord{X: -2, Y: 0}, NewPart(PartControlThruster, FacingRight))
-	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
-	// PDCs sit at the front flanks with a clear line of fire; the cells directly
-	// ahead of them are empty rather than walled off by the nose blocks.
-	s.AddPart(GridCoord{X: -1, Y: -1}, NewLeveledPart(PartPDC, FacingUp, 2))
-	s.AddPart(GridCoord{X: 1, Y: -1}, NewLeveledPart(PartPDC, FacingUp, 2))
-	// A missile launcher caps the nose, firing straight ahead over the gap between
-	// the forward blocks.
-	s.AddPart(GridCoord{X: 0, Y: -3}, NewPart(PartMissileLauncher, FacingUp))
-	s.AddPart(GridCoord{X: 0, Y: -4}, NewPart(PartShield, FacingUp))
-	return s
-}
-
 // EnemyShip is the stock hostile hull: a deliberately underpowered, lopsided
-// wreck. Where the player's DefaultShip is a symmetric two-engine, two-thruster,
+// wreck. Where the player's ship is a symmetric two-engine, two-thruster,
 // two-PDC craft, this thing limps along on a single engine, turns on a single
 // control thruster, and fires a single junk PDC. The cockpit juts out front-left
 // with no armor around it — an exposed, easy target — while the ragged hull
