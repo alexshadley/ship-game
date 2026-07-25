@@ -1156,7 +1156,7 @@ func (p *Physics) cullDeadLooseParts() {
 
 // scavengePartTypes are the part types scattered as free debris for the player to
 // salvage — every type except the cockpit (a ship has exactly one, at {0,0}).
-var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartPDC, PartMissileLauncher}
+var scavengePartTypes = []PartType{PartBlock, PartArmor, PartEngine, PartControlThruster, PartPDC, PartMissileLauncher, PartRattlesnakeMissile}
 
 // Loose-part scatter tuning: n stationary parts drift in a ring around the world
 // origin, close enough to reach on a spacewalk but clear of the ship's spawn.

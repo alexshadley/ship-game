@@ -184,6 +184,9 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	// the forward blocks.
 	s.AddPart(GridCoord{X: 0, Y: -3}, NewPart(PartMissileLauncher, FacingUp))
 	s.AddPart(GridCoord{X: 0, Y: -4}, NewPart(PartShield, FacingUp))
+	// A Rattlesnake missile launcher sits at the right of the nose; its missiles eject out to the
+	// right (into the open space beside the hull) and then boost in toward the target.
+	s.AddPart(GridCoord{X: 1, Y: -2}, NewPart(PartRattlesnakeMissile, FacingUp))
 	return s
 }
 
@@ -430,6 +433,13 @@ func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
 				fill = rl.NewColor(255, 80, 60, 44)
 				edge = rl.NewColor(255, 90, 70, 175)
 			}
+		} else if part.Type == PartRattlesnakeMissile {
+			fill = rl.NewColor(180, 120, 60, 19)
+			edge = rl.NewColor(180, 120, 60, 78)
+			if active {
+				fill = rl.NewColor(210, 145, 70, 44)
+				edge = rl.NewColor(225, 160, 80, 175)
+			}
 		} else {
 			fill = rl.NewColor(120, 170, 220, 19)
 			edge = rl.NewColor(120, 170, 220, 78)
@@ -504,6 +514,8 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
 	case PartRailgun:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.DarkGray)
+	case PartRattlesnakeMissile:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
 	}
 }
 

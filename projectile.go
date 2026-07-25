@@ -72,6 +72,22 @@ const (
 	railgunRecoilImpulse   = 4000.0
 	railgunImpactImpulse   = 22000.0
 	railgunBeamDuration    = 0.12
+
+	// A PartRattlesnakeMissile fires the same missile as a PartMissileLauncher (same
+	// health, blast, and cruise behaviour) but with a two-phase launch. The round
+	// first ejects sideways out the mount's right side and floats there at
+	// driftSpeed for driftDuration seconds under a small thruster, then its booster
+	// lights: it swings to point at the fire target and accelerates in from the
+	// side. Cadence and reach match the straight launcher.
+	rattlesnakeFireInterval    = 2.4
+	rattlesnakeHalfArc         = missileHalfArc
+	rattlesnakeEngagementRange = missileEngagementRange
+	rattlesnakeDriftSpeed      = 140.0
+	rattlesnakeDriftDuration   = 0.45
+	// The booster bites harder than a straight launcher's: once it lights, the
+	// Rattlesnake builds speed at 1.5x missileAcceleration, so it makes up the
+	// ground lost to its sideways drift and closes on the target quickly.
+	rattlesnakeAcceleration = missileAcceleration * 1.5
 )
 
 var (
@@ -127,6 +143,19 @@ type Projectile struct {
 	// Health is only meaningful for missiles: a missile shot down in flight (its
 	// health driven to zero by an enemy's rounds) is destroyed without detonating.
 	Health float32
+
+	// DriftTimer and BoostTarget drive a Rattlesnake missile's two-phase flight (see
+	// NewDriftMissile). While DriftTimer > 0 the round floats sideways at its launch
+	// velocity; when it runs out the booster lights and the round swings to point at
+	// BoostTarget (a fixed world point) and accelerates in like an ordinary missile.
+	// An ordinary missile leaves DriftTimer at 0 and skips the drift phase entirely.
+	DriftTimer  float32
+	BoostTarget rl.Vector2
+
+	// Acceleration is how fast a missile's motor builds speed (world px/s²) toward
+	// missileCruiseSpeed. It's per-round so the Rattlesnake can boost harder than a
+	// straight launcher's missile; it's unused for PDC rounds.
+	Acceleration float32
 }
 
 func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
@@ -146,25 +175,67 @@ func NewProjectile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Pro
 // Update, and it carries health so it can be shot down before impact.
 func NewMissile(owner *Ship, pos, velocity rl.Vector2, rotation float32) *Projectile {
 	return &Projectile{
-		Position: pos,
-		Velocity: velocity,
-		Lifespan: missileLifespan,
-		Rotation: rotation,
-		Size:     missileSize,
-		Owner:    owner,
-		Kind:     projectileMissile,
-		Health:   missileHealth,
+		Position:     pos,
+		Velocity:     velocity,
+		Lifespan:     missileLifespan,
+		Rotation:     rotation,
+		Size:         missileSize,
+		Owner:        owner,
+		Kind:         projectileMissile,
+		Health:       missileHealth,
+		Acceleration: missileAcceleration,
+	}
+}
+
+// NewDriftMissile builds a Rattlesnake missile's two-phase flight: it starts drifting
+// sideways at driftVel (out the mount's side) for rattlesnakeDriftDuration seconds, then
+// its booster lights and drives it toward boostTarget, a fixed world point. It is
+// an ordinary missile in every other respect — same health, cruise, and detonation.
+func NewDriftMissile(owner *Ship, pos, driftVel rl.Vector2, boostTarget rl.Vector2, rotation float32) *Projectile {
+	return &Projectile{
+		Position:     pos,
+		Velocity:     driftVel,
+		Lifespan:     missileLifespan,
+		Rotation:     rotation,
+		Size:         missileSize,
+		Owner:        owner,
+		Kind:         projectileMissile,
+		Health:       missileHealth,
+		DriftTimer:   rattlesnakeDriftDuration,
+		BoostTarget:  boostTarget,
+		Acceleration: rattlesnakeAcceleration,
 	}
 }
 
 func (p *Projectile) Update(dt float32) {
+	if p.Kind == projectileMissile && p.DriftTimer > 0 {
+		// Drift phase: coast sideways at the launch velocity while the timer runs;
+		// no acceleration and the heading stays put (nose leads the sideways slide).
+		// When the timer expires the booster lights — swing to face the stored fire
+		// target and reset to the launch speed so the ordinary missile motor below
+		// takes over from there, driving the round in from the side.
+		p.DriftTimer -= dt
+		p.Position.X += p.Velocity.X * dt
+		p.Position.Y += p.Velocity.Y * dt
+		p.Lifespan -= dt
+		if p.DriftTimer <= 0 {
+			dx := p.BoostTarget.X - p.Position.X
+			dy := p.BoostTarget.Y - p.Position.Y
+			if dx != 0 || dy != 0 {
+				p.Rotation = heading(dx, dy)
+			}
+			fx, fy := p.forward()
+			p.Velocity = rl.NewVector2(fx*missileLaunchSpeed, fy*missileLaunchSpeed)
+		}
+		return
+	}
 	if p.Kind == projectileMissile {
 		// The motor builds speed along the current heading up to the cruise cap;
 		// scaling the existing velocity keeps the direction fixed (missiles fly
 		// straight along their launch aim).
 		speed := float32(math.Hypot(float64(p.Velocity.X), float64(p.Velocity.Y)))
 		if speed > 0 {
-			newSpeed := speed + missileAcceleration*dt
+			newSpeed := speed + p.Acceleration*dt
 			if newSpeed > missileCruiseSpeed {
 				newSpeed = missileCruiseSpeed
 			}
@@ -258,7 +329,14 @@ type RailgunShot struct {
 
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
 func (t PartType) isWeapon() bool {
-	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun
+	return t == PartPDC || t == PartSlowPDC || t == PartMissileLauncher || t == PartRailgun || t == PartRattlesnakeMissile
+}
+
+// isMissileWeapon reports whether a mount fires on the missile trigger and aims at
+// the missile fire target (the straight and Rattlesnake launchers), rather than firing
+// on the PDC trigger.
+func (t PartType) isMissileWeapon() bool {
+	return t == PartMissileLauncher || t == PartRailgun || t == PartRattlesnakeMissile
 }
 
 // fireInterval is the cadence between this mount's shots: a slow junk PDC fires
@@ -273,6 +351,8 @@ func (t PartType) fireInterval() float32 {
 		return missileFireInterval
 	case PartRailgun:
 		return railgunFireInterval
+	case PartRattlesnakeMissile:
+		return rattlesnakeFireInterval
 	default:
 		return pdcFireInterval
 	}
@@ -286,6 +366,8 @@ func (t PartType) halfArc() float32 {
 		return missileHalfArc
 	case PartRailgun:
 		return railgunHalfArc
+	case PartRattlesnakeMissile:
+		return rattlesnakeHalfArc
 	default:
 		return pdcHalfArc
 	}
@@ -300,6 +382,8 @@ func (t PartType) engagementRange() float32 {
 		return missileEngagementRange
 	case PartRailgun:
 		return railgunEngagementRange
+	case PartRattlesnakeMissile:
+		return rattlesnakeEngagementRange
 	default:
 		return pdcEngagementRange
 	}
@@ -327,7 +411,7 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 		// enemy PDC swats an inbound missile while its launcher stays on the target).
 		triggered := controls.Fire
 		fireTarget := controls.PDCTarget
-		if part.Type == PartMissileLauncher || part.Type == PartRailgun {
+		if part.Type.isMissileWeapon() {
 			triggered = controls.FireMissiles
 			fireTarget = controls.MissileTarget
 		}
@@ -374,6 +458,18 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) ([]*Projectile, []Rail
 			// (not inheriting the ship's velocity) and accelerates from there.
 			vel := rl.NewVector2(dirX*missileLaunchSpeed, dirY*missileLaunchSpeed)
 			shots = append(shots, NewMissile(s, pos, vel, aim))
+			continue
+		}
+		if part.Type == PartRattlesnakeMissile {
+			// The Rattlesnake missile ejects out the mount's right side (mount heading +90°)
+			// and drifts there under a small thruster before its booster swings it in
+			// toward the target. It emerges from the side, not the muzzle, so it starts
+			// clear of the hull; the aim/arc check above still gates on the target.
+			right := mount + math.Pi/2
+			rx, ry := float32(math.Sin(float64(right))), float32(-math.Cos(float64(right)))
+			launchPos := rl.NewVector2(center.X+rx*cellSize*0.5, center.Y+ry*cellSize*0.5)
+			driftVel := rl.NewVector2(rx*rattlesnakeDriftSpeed, ry*rattlesnakeDriftSpeed)
+			shots = append(shots, NewDriftMissile(s, launchPos, driftVel, target, right))
 			continue
 		}
 		// Scatter each round within pdcSpread of the aim so sustained fire fans
