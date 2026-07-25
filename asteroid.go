@@ -33,8 +33,8 @@ func (a *Asteroid) Draw() {
 
 const (
 	fieldRadius      = 6000
-	fieldHugeCount   = 7
-	fieldSmallCount  = 25
+	fieldHugeCount   = 14
+	fieldSmallCount  = 50
 	spawnClearRadius = 700
 
 	// worldBound is the half-extent of the square play area — the same square the
