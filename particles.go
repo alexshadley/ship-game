@@ -84,6 +84,19 @@ func (ps *ParticleSystem) EmitMissile(pos, dir, missileVel rl.Vector2) {
 		missileExhaustSpeed, missileExhaustSpread, missileExhaustLifetime, missileExhaustScale)
 }
 
+// EmitTrail drops a lingering puff at pos to mark a projectile's flight path. It
+// hangs nearly in place (unlike an exhaust plume, which is flung outward) and fades
+// over lifetime; scale sizes it, so a caller passing a speed-proportional scale
+// lays a trail that fattens with velocity.
+func (ps *ParticleSystem) EmitTrail(pos rl.Vector2, color rl.Color, lifetime, scale float32) {
+	ps.particles = append(ps.particles, particle{
+		pos:      pos,
+		lifetime: lifetime,
+		color:    color,
+		scale:    scale,
+	})
+}
+
 // emit spawns a single exhaust particle at pos travelling outward along dir (a
 // unit vector). baseVel is added so the plume drifts with its source instead of
 // hanging in place; scale sizes the particle relative to the default plume.

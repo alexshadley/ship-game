@@ -39,6 +39,12 @@ const (
 	// heavy damage. Firing kicks the shooter back a little and shoves whatever it
 	// hits a lot more (see FireWeapons and Physics.fireRailgun).
 	PartRailgun
+	// PartRattlesnakeMissile fires the same destructible, area-blast missile as a
+	// PartMissileLauncher, but the round ejects out the mount's right side and
+	// floats there under a small thruster before its booster lights and drives it
+	// toward the fire target — a curved, flanking shot (see FireWeapons and the
+	// drift-missile branch of Projectile.Update).
+	PartRattlesnakeMissile
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -81,6 +87,8 @@ func (t PartType) String() string {
 		return "Shield"
 	case PartRailgun:
 		return "Railgun"
+	case PartRattlesnakeMissile:
+		return "Rattlesnake Missile"
 	default:
 		return "Unknown"
 	}
@@ -361,12 +369,13 @@ var partSpecs = map[PartType]partSpec{
 	PartGold:   {health: 150, weight: 2 * partWeight, color: rl.Gold},
 	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
 
-	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple},
-	PartPDC:             {health: 75, weight: partWeight, color: rl.DarkGreen},
-	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
-	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon},
-	PartShield:          {health: 75, weight: partWeight, color: rl.Blue},
-	PartRailgun:         {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
+	PartControlThruster:    {health: 150, weight: partWeight, color: rl.Purple},
+	PartPDC:                {health: 75, weight: partWeight, color: rl.DarkGreen},
+	PartSlowPDC:            {health: 75, weight: partWeight, color: rl.DarkBrown},
+	PartMissileLauncher:    {health: 75, weight: partWeight, color: rl.Maroon},
+	PartShield:             {health: 75, weight: partWeight, color: rl.Blue},
+	PartRailgun:            {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
+	PartRattlesnakeMissile: {health: 75, weight: partWeight, color: rl.NewColor(150, 100, 55, 255)},
 }
 
 const (
