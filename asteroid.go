@@ -33,36 +33,38 @@ func (a *Asteroid) Draw() {
 
 const (
 	fieldRadius      = 3000
-	fieldCount       = 60
+	fieldHugeCount   = 7
+	fieldSmallCount  = 25
 	spawnClearRadius = 700
 
-	asteroidMinSize    = 15
-	asteroidMaxSize    = 70
-	asteroidHugeMin    = 150
-	asteroidHugeMax    = 400
-	asteroidHugeChance = 0.12
+	asteroidMinSize = 15
+	asteroidMaxSize = 70
+	asteroidHugeMin = 150
+	asteroidHugeMax = 400
 )
 
 func DefaultAsteroids() []*Asteroid {
-	asteroids := make([]*Asteroid, 0, fieldCount)
-	for len(asteroids) < fieldCount {
-		pos := rl.NewVector2(
-			(rand.Float32()*2-1)*fieldRadius,
-			(rand.Float32()*2-1)*fieldRadius,
-		)
-		// Keep the ship's spawn (and the enemies near it) clear of rocks.
-		if pos.X*pos.X+pos.Y*pos.Y < spawnClearRadius*spawnClearRadius {
-			continue
-		}
+	asteroids := make([]*Asteroid, 0, fieldHugeCount+fieldSmallCount)
 
-		var size float32
-		if rand.Float32() < asteroidHugeChance {
-			size = asteroidHugeMin + rand.Float32()*(asteroidHugeMax-asteroidHugeMin)
-		} else {
-			size = asteroidMinSize + rand.Float32()*(asteroidMaxSize-asteroidMinSize)
-		}
+	spawn := func(count int, minSize, maxSize float32) {
+		for spawned := 0; spawned < count; {
+			pos := rl.NewVector2(
+				(rand.Float32()*2-1)*fieldRadius,
+				(rand.Float32()*2-1)*fieldRadius,
+			)
+			// Keep the ship's spawn (and the enemies near it) clear of rocks.
+			if pos.X*pos.X+pos.Y*pos.Y < spawnClearRadius*spawnClearRadius {
+				continue
+			}
 
-		asteroids = append(asteroids, NewAsteroid(pos, rl.NewVector2(0, 0), size))
+			size := minSize + rand.Float32()*(maxSize-minSize)
+			asteroids = append(asteroids, NewAsteroid(pos, rl.NewVector2(0, 0), size))
+			spawned++
+		}
 	}
+
+	spawn(fieldHugeCount, asteroidHugeMin, asteroidHugeMax)
+	spawn(fieldSmallCount, asteroidMinSize, asteroidMaxSize)
+
 	return asteroids
 }
