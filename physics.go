@@ -101,7 +101,7 @@ type Physics struct {
 // cursor. It's deliberately slow so a part feels heavy — it lags well behind the
 // pointer and crawls into place — and so a dragged part meaningfully shoves
 // whatever it rams into rather than batting it aside.
-const grabDragSpeed = 100
+const grabDragSpeed = 200
 
 // grabbedPart is the loose part the player is dragging on a spacewalk: its debris
 // entry and rigid body (both stable pointers, so they survive the loose slices
