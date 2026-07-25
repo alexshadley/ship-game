@@ -38,7 +38,7 @@ const (
 	// (missileHealth) and can be shot down in flight; on impact it detonates for
 	// area damage (see Physics.missileBlast).
 	missileFireInterval = 2.2
-	missileHalfArc      = 0.15 * math.Pi
+	missileHalfArc      = 0.22 * math.Pi
 	missileLaunchSpeed  = 120.0
 	missileCruiseSpeed  = 480.0
 	missileAcceleration = 320.0
@@ -47,9 +47,9 @@ const (
 
 	// missileEngagementRange is the fire-target distance (world px) within which a
 	// missile launcher opens up when Controls.EnforceEngagementRange is set. A
-	// missile self-propels to a cruise speed and reaches far further than a PDC
-	// round, so it engages from about twice the PDC range.
-	missileEngagementRange = 2 * pdcEngagementRange
+	// missile self-propels to a cruise speed but engages at close-in range so
+	// launchers only open fire once the target is well within reach.
+	missileEngagementRange = 900
 )
 
 var (
