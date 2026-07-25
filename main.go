@@ -234,6 +234,8 @@ func main() {
 			rl.BeginTextureMode(target)
 			rl.ClearBackground(rl.Black)
 			rl.BeginMode2D(camera)
+			// The boundary wall draws first, behind everything, framing the play area.
+			DrawWorldBounds()
 			for _, a := range asteroids {
 				a.Draw()
 			}
@@ -334,6 +336,21 @@ func drawPlayerHealthHUD(health float32) {
 	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
 	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
 	rl.DrawText(fmt.Sprintf("HP %d", int(math.Ceil(float64(health)))), barX+barWidth+4, barY-2, 10, rl.RayWhite)
+}
+
+// worldBoundColor tints the world boundary — the wall drawn in the field and its
+// dotted frame on the minimap — a muted red reading as the edge of the safe area.
+var worldBoundColor = rl.NewColor(210, 70, 70, 160)
+
+// DrawWorldBounds outlines the square play area (see worldBound) so the otherwise
+// invisible walls that pen ships, asteroids, and debris in are visible. Drawn in
+// world space, so it must be called inside BeginMode2D. The line is thick in world
+// units so it stays legible at the zoomed-out piloting view.
+func DrawWorldBounds() {
+	rl.DrawRectangleLinesEx(
+		rl.NewRectangle(-worldBound, -worldBound, worldBound*2, worldBound*2),
+		16, worldBoundColor,
+	)
 }
 
 // drawGameOver dims the frozen scene and centers a GAME OVER banner over it.
