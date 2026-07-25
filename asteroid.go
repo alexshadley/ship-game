@@ -32,10 +32,18 @@ func (a *Asteroid) Draw() {
 }
 
 const (
-	fieldRadius      = 3000
+	fieldRadius      = 6000
 	fieldHugeCount   = 7
 	fieldSmallCount  = 25
 	spawnClearRadius = 700
+
+	// worldBound is the half-extent of the square play area — the same square the
+	// asteroid field is scattered across (fieldRadius on each axis). Ships,
+	// asteroids, loose debris, and the astronaut are penned inside it and shoved
+	// back when they drift past an edge; projectiles pass through freely. See
+	// enforceBounds (the push-back) and DrawWorldBounds / drawMinimapBounds (the
+	// visuals).
+	worldBound = fieldRadius
 
 	asteroidMinSize = 15
 	asteroidMaxSize = 70

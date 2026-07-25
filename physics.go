@@ -592,6 +592,53 @@ func (p *Physics) LooseParts() []*LoosePart {
 	return p.looseParts
 }
 
+// boundBounce is the fraction of outward speed a body keeps (reversed) when it's
+// turned back at a world wall — a soft rebound into play rather than a dead stop.
+const boundBounce = 0.5
+
+// enforceBounds keeps a single body inside the square world boundary (see
+// worldBound). On each axis where the body's center has crossed a wall it is
+// nudged back onto that wall and any outward velocity is reflected inward, damped
+// by boundBounce, so the body rebounds into the field instead of escaping.
+func enforceBounds(body *cp.Body) {
+	pos := body.Position()
+	vel := body.Velocity()
+	changed := false
+
+	if pos.X < -worldBound {
+		pos.X = -worldBound
+		if vel.X < 0 {
+			vel.X = -vel.X * boundBounce
+		}
+		changed = true
+	} else if pos.X > worldBound {
+		pos.X = worldBound
+		if vel.X > 0 {
+			vel.X = -vel.X * boundBounce
+		}
+		changed = true
+	}
+
+	if pos.Y < -worldBound {
+		pos.Y = -worldBound
+		if vel.Y < 0 {
+			vel.Y = -vel.Y * boundBounce
+		}
+		changed = true
+	} else if pos.Y > worldBound {
+		pos.Y = worldBound
+		if vel.Y > 0 {
+			vel.Y = -vel.Y * boundBounce
+		}
+		changed = true
+	}
+
+	if changed {
+		body.SetPosition(pos)
+		body.SetVelocityVector(vel)
+	}
+}
+
 func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	// GetFrameTime reports 0 on the first frame and can spike after a stall; clamp
 	// so the integrator never divides by zero or takes a huge step.
@@ -668,6 +715,22 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 	}
 
 	p.space.Step(dt)
+
+	// Pen every solid body inside the world boundary. Projectiles live outside the
+	// space (see main's projectile loop), so they're naturally excluded and fly
+	// straight through the walls.
+	for _, sb := range p.ships {
+		enforceBounds(sb.body)
+	}
+	for _, ab := range p.asteroidBodies {
+		enforceBounds(ab)
+	}
+	for _, lb := range p.looseBodies {
+		enforceBounds(lb)
+	}
+	if p.playerBody != nil {
+		enforceBounds(p.playerBody)
+	}
 
 	var projectiles []*Projectile
 	survivors := p.ships[:0]
