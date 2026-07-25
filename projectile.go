@@ -55,6 +55,10 @@ const (
 var (
 	projectileSize = rl.NewVector2(4, 12)
 	missileSize    = rl.NewVector2(12, 34)
+
+	// A missile reads as a grey body with a red nose cap pointed the way it flies.
+	missileBodyColor = rl.NewColor(150, 150, 158, 255)
+	missileTipColor  = rl.Red
 )
 
 // ProjectileKind distinguishes an ordinary PDC round from a missile, which
@@ -178,13 +182,46 @@ func (p *Projectile) Damage() float32 {
 }
 
 func (p *Projectile) Draw() {
+	if p.Kind == projectileMissile {
+		p.drawMissile()
+		return
+	}
 	rec := rl.NewRectangle(p.Position.X, p.Position.Y, p.Size.X, p.Size.Y)
 	origin := rl.NewVector2(p.Size.X/2, p.Size.Y/2)
-	color := rl.Yellow
-	if p.Kind == projectileMissile {
-		color = rl.Red
-	}
-	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, color)
+	rl.DrawRectanglePro(rec, origin, p.Rotation*180/math.Pi, rl.Yellow)
+}
+
+// drawMissile renders the missile as a grey body with a short red nose cap on
+// the leading end (the end pointing along its heading).
+func (p *Projectile) drawMissile() {
+	deg := p.Rotation * 180 / math.Pi
+
+	body := rl.NewRectangle(p.Position.X, p.Position.Y, p.Size.X, p.Size.Y)
+	rl.DrawRectanglePro(body, rl.NewVector2(p.Size.X/2, p.Size.Y/2), deg, missileBodyColor)
+
+	// The nose points along the heading (sin, -cos); cap the front ~quarter red.
+	fx, fy := p.forward()
+	tipLen := p.Size.Y * 0.28
+	tipCenter := rl.NewVector2(
+		p.Position.X+fx*(p.Size.Y/2-tipLen/2),
+		p.Position.Y+fy*(p.Size.Y/2-tipLen/2),
+	)
+	tip := rl.NewRectangle(tipCenter.X, tipCenter.Y, p.Size.X, tipLen)
+	rl.DrawRectanglePro(tip, rl.NewVector2(p.Size.X/2, tipLen/2), deg, missileTipColor)
+}
+
+// forward is the unit vector pointing along the missile's heading.
+func (p *Projectile) forward() (float32, float32) {
+	return float32(math.Sin(float64(p.Rotation))), -float32(math.Cos(float64(p.Rotation)))
+}
+
+// EmitExhaust spawns a small exhaust plume out the missile's tail, drifting with
+// the missile the way an engine plume drifts with its ship.
+func (p *Projectile) EmitExhaust(ps *ParticleSystem) {
+	fx, fy := p.forward()
+	pos := rl.NewVector2(p.Position.X-fx*p.Size.Y/2, p.Position.Y-fy*p.Size.Y/2)
+	dir := rl.NewVector2(-fx, -fy)
+	ps.EmitMissile(pos, dir, p.Velocity)
 }
 
 // isWeapon reports whether a part is a firing mount handled by FireWeapons.
