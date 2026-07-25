@@ -8,19 +8,16 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-type EnemyAction int
-
 const (
-	ActionStrafe EnemyAction = iota
-	ActionMoveCloser
-	numEnemyActions
-)
-
-const (
-	enemyActionMin = 1.0
-	enemyActionMax = 3.0
 	enemyTurnP = 1.5
 	enemyTurnD = 0.5
+
+	// enemyThrustAlignAngle is how close (radians) the nose must be to the goal
+	// heading before the enemy fires its engine. Thrust is applied along the ship's
+	// current facing, not the goal, so burning while still mid-turn just pushes the
+	// ship sideways and makes it wobble. Gating thrust on alignment makes it turn
+	// first, then close the distance.
+	enemyThrustAlignAngle = 0.5
 
 	// avoidLookahead is how far ahead (world px) beyond an obstacle's clearance an
 	// enemy starts reacting to it.
@@ -38,62 +35,36 @@ type EnemyAI struct {
 	target    *Ship
 	asteroids []*Asteroid
 
-	action     EnemyAction
-	actionTime float32
-	strafeSign float32
-
 	// desired is the goal heading the AI steered toward on the last Controls call:
-	// toward the target when closing, perpendicular when strafing, then bent around
-	// obstacles by avoidHeading. Stored so the AI debug overlay can draw it. Note the
-	// ship rotates toward this but thrusts along its current facing, so the two only
-	// coincide once it finishes turning.
+	// toward the target either way, but bent around obstacles by avoidHeading while
+	// navigating. Stored so the AI debug overlay can draw it. Note the ship rotates
+	// toward this but thrusts along its current facing, so the two only coincide
+	// once it finishes turning.
 	desired float32
 }
 
 func NewEnemyAI(self, target *Ship, asteroids []*Asteroid) *EnemyAI {
-	ai := &EnemyAI{ship: self, target: target, asteroids: asteroids}
-	ai.pickAction()
-	return ai
-}
-
-func (ai *EnemyAI) pickAction() {
-	ai.action = EnemyAction(rand.Intn(int(numEnemyActions)))
-	ai.actionTime = enemyActionMin + rand.Float32()*(enemyActionMax-enemyActionMin)
-	if rand.Intn(2) == 0 {
-		ai.strafeSign = 1
-	} else {
-		ai.strafeSign = -1
-	}
+	return &EnemyAI{ship: self, target: target, asteroids: asteroids}
 }
 
 func (ai *EnemyAI) Controls(dt float32) Controls {
-	ai.actionTime -= dt
-	if ai.actionTime <= 0 {
-		ai.pickAction()
-	}
-
 	dx := ai.target.Position.X - ai.ship.Position.X
 	dy := ai.target.Position.Y - ai.ship.Position.Y
 	aimHeading := heading(dx, dy)
+	dist := float32(math.Hypot(float64(dx), float64(dy)))
 
-	var desired float32
-	var thrust float32
-	switch ai.action {
-	case ActionMoveCloser:
-		desired = aimHeading
-		thrust = 1
-	case ActionStrafe:
-		desired = heading(-dy*ai.strafeSign, dx*ai.strafeSign)
-		thrust = 1
-	}
-
-	// When driving somewhere, bend the goal heading around nearby asteroids and the
-	// player, and refuse to thrust straight into whatever's dead ahead.
-	if thrust != 0 {
+	// Two modes, switched purely on range:
+	//   navigate — farther than the ship's biggest engagement range, so close the
+	//              distance by thrusting toward the player (avoiding obstacles).
+	//   face     — within that range, so stop and simply hold the nose on the player
+	//              while the weapons do the work.
+	// Always aim at the player; only the thrust/heading differ between the modes.
+	desired := aimHeading
+	navigating := dist > ai.maxEngagementRange()
+	if navigating {
+		// While navigating, bend the goal heading around nearby asteroids and the
+		// player so we steer around them on the way in.
 		desired = ai.avoidHeading(desired)
-		if ai.pathBlocked(ai.ship.Direction) {
-			thrust = 0
-		}
 	}
 
 	ai.desired = desired
@@ -101,6 +72,15 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	// PD steering: turn proportional to heading error, braked by the turn rate.
 	err := angleDiff(desired, ai.ship.Direction)
 	turn := clamp(err*enemyTurnP-ai.ship.AngularVelocity*enemyTurnD, -1, 1)
+
+	// Thrust only while navigating, and only once the nose is roughly on the goal
+	// heading — thrust pushes along the current facing, so burning mid-turn shoves
+	// the ship sideways and it wobbles instead of closing. Also refuse to thrust
+	// straight into whatever's dead ahead.
+	var thrust float32
+	if navigating && float32(math.Abs(float64(err))) < enemyThrustAlignAngle && !ai.pathBlocked(ai.ship.Direction) {
+		thrust = 1
+	}
 
 	// The enemy always holds its trigger and aims at the player's cockpit (the
 	// target ship's origin is its cockpit cell, so the offset from our origin is
@@ -116,6 +96,23 @@ func (ai *EnemyAI) Controls(dt float32) Controls {
 	}
 }
 
+// maxEngagementRange is the largest engagement range across the ship's weapon
+// mounts — the distance at which the ship's longest-reaching weapon opens fire,
+// and the threshold the AI uses to switch from navigating toward the player to
+// simply facing it. Returns 0 for an unarmed ship, which keeps it in face mode.
+func (ai *EnemyAI) maxEngagementRange() float32 {
+	var maxRange float32
+	for _, part := range ai.ship.Parts {
+		if !part.Type.isWeapon() {
+			continue
+		}
+		if r := part.Type.engagementRange(); r > maxRange {
+			maxRange = r
+		}
+	}
+	return maxRange
+}
+
 // DrawDebug overlays this enemy's AI state for the AI debug mode: a ring at each
 // weapon's engagement range (the distance at which that mount opens fire) and a line
 // along the goal heading the AI is steering toward this frame. The direction line is
@@ -127,17 +124,15 @@ func (ai *EnemyAI) DrawDebug() {
 	pos := ai.ship.Position
 
 	// One ring per distinct weapon range the ship actually mounts. Currently PDCs
-	// and missiles share a range, so this is usually a single circle.
-	var maxRange float32
+	// and missiles share a range, so this is usually a single circle. The largest
+	// is the mode-switch threshold (see maxEngagementRange).
+	maxRange := ai.maxEngagementRange()
 	seen := map[float32]bool{}
 	for _, part := range ai.ship.Parts {
 		if !part.Type.isWeapon() {
 			continue
 		}
 		r := part.Type.engagementRange()
-		if r > maxRange {
-			maxRange = r
-		}
 		if seen[r] {
 			continue
 		}
@@ -173,11 +168,9 @@ func (ai *EnemyAI) avoidHeading(goal float32) float32 {
 		steerX += rx
 		steerY += ry
 	}
-	// Push off the player too so enemies don't ram it, using its physical extent so
-	// they can still close to firing range before the repulsion bites.
-	rx, ry := steerAway(sx, sy, ai.target.Position.X, ai.target.Position.Y, ai.target.Radius()+selfR+avoidMargin)
-	steerX += rx
-	steerY += ry
+	// The player is deliberately not treated as an obstacle here: navigate mode
+	// exists to close on it, and face mode already halts the enemy at engagement
+	// range (well outside the player's hull), so it never rams.
 
 	// If repulsion cancels the goal, keep the original heading rather than spin.
 	if steerX*steerX+steerY*steerY < 1e-4 {
@@ -216,12 +209,15 @@ func (ai *EnemyAI) pathBlocked(dir float32) bool {
 	sx, sy := ai.ship.Position.X, ai.ship.Position.Y
 	selfR := ai.ship.Radius()
 
+	// Only asteroids block the path — the player is the goal, not an obstacle, so
+	// pointing at it must never cut thrust (that would strand the enemy just outside
+	// range, facing the player and unable to close).
 	for _, a := range ai.asteroids {
 		if rayHitsCircle(sx, sy, dx, dy, a.Position.X, a.Position.Y, a.Size+selfR+avoidMargin) {
 			return true
 		}
 	}
-	return rayHitsCircle(sx, sy, dx, dy, ai.target.Position.X, ai.target.Position.Y, ai.target.Radius()+selfR+avoidMargin)
+	return false
 }
 
 // rayHitsCircle reports whether the segment from (px,py) along unit (dx,dy) for
