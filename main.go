@@ -19,6 +19,13 @@ const (
 	spacewalkZoom     = 0.7
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
+
+	// While piloting, the scroll wheel adjusts the zoom between these bounds.
+	// pilotZoomMin frames a wide swath of the battlefield; pilotZoomMax keeps the
+	// view from closing in tighter than the spacewalk framing.
+	pilotZoomMin  = 0.12
+	pilotZoomMax  = 0.6
+	pilotZoomStep = 0.04
 )
 
 func main() {
@@ -59,6 +66,10 @@ func main() {
 	var scavenger Scavenger
 	var repair RepairTool
 	spacewalking := false
+
+	// User-controlled piloting zoom, nudged by the scroll wheel. The camera eases
+	// toward this while piloting; spacewalks use their own fixed framing.
+	pilotZoom := float32(pilotingZoom)
 
 	// Set once the astronaut's health runs out on a spacewalk. The simulation
 	// freezes and a GAME OVER banner takes over the HUD.
@@ -184,7 +195,15 @@ func main() {
 				gameOver = true
 			}
 
-			targetZoom := float32(pilotingZoom)
+			// Scrolling while piloting zooms the view; scrolling in and out is
+			// disabled on a spacewalk, where the framing is fixed.
+			if !spacewalking {
+				if wheel := rl.GetMouseWheelMove(); wheel != 0 {
+					pilotZoom = clamp(pilotZoom+wheel*pilotZoomStep, pilotZoomMin, pilotZoomMax)
+				}
+			}
+
+			targetZoom := pilotZoom
 			if spacewalking {
 				targetZoom = spacewalkZoom
 			}
