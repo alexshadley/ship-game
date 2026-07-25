@@ -355,6 +355,27 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 }
 
 func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool {
+	for _, sb := range p.ships {
+		if sb.ship == pr.Owner {
+			continue
+		}
+		if shield, center := sb.ship.shieldCovering(pr.Position); shield != nil {
+			angle := float32(math.Atan2(float64(pr.Position.Y-center.Y), float64(pr.Position.X-center.X)) * 180 / math.Pi)
+			shield.addShieldImpact(angle)
+			if !p.playerInvincible(sb) {
+				amount := pr.Damage()
+				if pr.Kind == projectileMissile {
+					amount = missileBlastDamage
+				}
+				shield.damageShield(amount)
+			}
+			if pr.Kind == projectileMissile {
+				particles.SpawnExplosion(pr.Position, missileBlastRadius)
+			}
+			return true
+		}
+	}
+
 	if pr.Kind == projectileMissile {
 		return p.missileHit(pr, particles)
 	}
@@ -367,12 +388,6 @@ func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool 
 		// A ship's own rounds fly through it without connecting.
 		if sb.ship == pr.Owner {
 			continue
-		}
-		if shield := sb.ship.shieldCovering(pr.Position); shield != nil {
-			if !p.playerInvincible(sb) {
-				shield.damageShield(pr.Damage())
-			}
-			return true
 		}
 		if part := sb.ship.partAtWorld(pr.Position); part != nil {
 			// The projectile is consumed on contact either way; in god mode the

@@ -248,17 +248,17 @@ func (s *Ship) partAtWorld(wp rl.Vector2) *Part {
 	return s.Parts[s.gridAtWorld(wp)]
 }
 
-func (s *Ship) shieldCovering(wp rl.Vector2) *Part {
+func (s *Ship) shieldCovering(wp rl.Vector2) (*Part, rl.Vector2) {
 	for c, part := range s.Parts {
 		if !part.shieldActive() {
 			continue
 		}
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 		if dist(wp, center) <= shieldRadius {
-			return part
+			return part, center
 		}
 	}
-	return nil
+	return nil, rl.Vector2{}
 }
 
 // distToCell returns the distance from world point p to the nearest point of grid
@@ -440,16 +440,33 @@ func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
 }
 
 func (s *Ship) DrawShields() {
+	const shimmerSegments = 64
+	now := float32(rl.GetTime())
 	for c, part := range s.Parts {
-		if !part.shieldActive() {
+		if part.Type != PartShield {
 			continue
 		}
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
-		frac := clamp01(part.ShieldHealth / shieldMaxHealth)
-		fillA := uint8(18 + 52*frac)
-		edgeA := uint8(55 + 150*frac)
-		rl.DrawCircleV(center, shieldRadius, rl.NewColor(90, 170, 255, fillA))
-		rl.DrawCircleLines(int32(center.X), int32(center.Y), shieldRadius, rl.NewColor(120, 195, 255, edgeA))
+
+		if part.shieldActive() {
+			frac := clamp01(part.ShieldHealth / shieldMaxHealth)
+			rl.DrawCircleV(center, shieldRadius, rl.NewColor(120, 180, 255, uint8(20*frac)))
+			for i := 0; i < shimmerSegments; i++ {
+				a0 := float32(i) / shimmerSegments * 360
+				a1 := float32(i+1) / shimmerSegments * 360
+				mid := float64((a0+a1)/2)*math.Pi/180 + float64(s.Direction)
+				shimmer := 0.5 + 0.5*float32(math.Sin(mid*4+float64(now)*3))
+				a := uint8((45 + 150*shimmer) * frac)
+				rl.DrawRing(center, shieldRadius-3, shieldRadius+3, a0, a1, 2, rl.NewColor(165, 210, 255, a))
+			}
+		}
+
+		for _, im := range part.ShieldImpacts {
+			t := clamp01(im.timer / shieldFlashDuration)
+			const spanDeg = 55
+			rl.DrawCircleV(center, shieldRadius, rl.NewColor(150, 215, 255, uint8(45*t)))
+			rl.DrawRing(center, shieldRadius-11, shieldRadius+7, im.angle-spanDeg/2, im.angle+spanDeg/2, 24, rl.NewColor(190, 235, 255, uint8(255*t)))
+		}
 	}
 }
 

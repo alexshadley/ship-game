@@ -151,6 +151,12 @@ type Part struct {
 	ShieldHealth     float32
 	ShieldDownTimer  float32
 	ShieldRegenDelay float32
+	ShieldImpacts    []shieldImpact
+}
+
+type shieldImpact struct {
+	angle float32
+	timer float32
 }
 
 func (p *Part) shieldActive() bool {
@@ -166,9 +172,23 @@ func (p *Part) damageShield(amount float32) {
 	}
 }
 
+func (p *Part) addShieldImpact(angleDeg float32) {
+	p.ShieldImpacts = append(p.ShieldImpacts, shieldImpact{angle: angleDeg, timer: shieldFlashDuration})
+}
+
 func (p *Part) updateShield(dt float32) {
 	if p.Type != PartShield {
 		return
+	}
+	if len(p.ShieldImpacts) > 0 {
+		kept := p.ShieldImpacts[:0]
+		for _, im := range p.ShieldImpacts {
+			im.timer -= dt
+			if im.timer > 0 {
+				kept = append(kept, im)
+			}
+		}
+		p.ShieldImpacts = kept
 	}
 	if p.ShieldDownTimer > 0 {
 		p.ShieldDownTimer -= dt
@@ -218,12 +238,13 @@ var partSpecs = map[PartType]partSpec{
 }
 
 const (
-	shieldMaxHealth    float32 = 50
-	shieldRadius               = 2 * cellSize
-	shieldRestoreFrac  float32 = 0.25
-	shieldDownDuration float32 = 6
-	shieldRegenDelay   float32 = 3
-	shieldRegenRate    float32 = 6
+	shieldMaxHealth     float32 = 50
+	shieldRadius                = 2 * cellSize
+	shieldRestoreFrac   float32 = 0.25
+	shieldDownDuration  float32 = 6
+	shieldRegenDelay    float32 = 3
+	shieldRegenRate     float32 = 6
+	shieldFlashDuration float32 = 0.35
 )
 
 func NewPart(t PartType, facing Facing) *Part {
