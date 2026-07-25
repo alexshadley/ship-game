@@ -1,0 +1,94 @@
+{
+  "parts": [
+    {
+      "x": -4,
+      "y": -1,
+      "type": "PDC",
+      "facing": "Up"
+    },
+    {
+      "x": 4,
+      "y": -1,
+      "type": "Railgun",
+      "facing": "Up"
+    },
+    {
+      "x": -5,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Right"
+    },
+    {
+      "x": -4,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": -3,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "type": "Cockpit",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 4,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 5,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Right"
+    },
+    {
+      "x": -4,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Down"
+    },
+    {
+      "x": 4,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Down"
+    }
+  ]
+}
