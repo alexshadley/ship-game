@@ -67,7 +67,7 @@ const (
 	railgunDamage          = 600.0
 	railgunFireInterval    = 3.5
 	railgunHalfArc         = 0.07 * math.Pi
-	railgunEngagementRange = 2600
+	railgunEngagementRange = 2700
 	railgunRange           = 4000.0
 	railgunRecoilImpulse   = 4000.0
 	railgunImpactImpulse   = 22000.0
