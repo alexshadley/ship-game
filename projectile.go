@@ -39,10 +39,10 @@ const (
 	// area damage (see Physics.missileBlast).
 	missileFireInterval = 2.2
 	missileHalfArc      = 0.15 * math.Pi
-	missileLaunchSpeed  = 160.0
-	missileCruiseSpeed  = 950.0
-	missileAcceleration = 650.0
-	missileLifespan     = 5.0
+	missileLaunchSpeed  = 120.0
+	missileCruiseSpeed  = 480.0
+	missileAcceleration = 320.0
+	missileLifespan     = 7.0
 	missileHealth       = 15.0
 
 	// missileEngagementRange is the fire-target distance (world px) within which a
@@ -54,7 +54,7 @@ const (
 
 var (
 	projectileSize = rl.NewVector2(4, 12)
-	missileSize    = rl.NewVector2(6, 18)
+	missileSize    = rl.NewVector2(12, 34)
 )
 
 // ProjectileKind distinguishes an ordinary PDC round from a missile, which
