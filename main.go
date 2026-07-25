@@ -87,9 +87,14 @@ func main() {
 	stageTimer := float32(stageDuration)
 	stageCleared := false
 
-	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
-	// so scavenging and other mechanics can be tested without dying.
+	// Debug god mode (toggle with G or from the pause menu): while on, the player's
+	// ship takes no damage, so scavenging and other mechanics can be tested without
+	// dying.
 	godMode := false
+
+	// AI debug mode (toggle from the pause menu): overlays each enemy's engagement
+	// ranges and the goal heading its AI is steering toward.
+	aiDebug := false
 
 	physics.AddShip(ship, PilotInput{
 		spacewalking: &spacewalking,
@@ -99,10 +104,12 @@ func main() {
 	// Enemies arrive from offscreen: one at the start, then another every
 	// enemySpawnInterval seconds.
 	var enemies []*Ship
+	var enemyAIs []*EnemyAI
 	spawnEnemy := func() {
 		e, ai := SpawnEnemy(ship, asteroids)
 		physics.AddShip(e, ai)
 		enemies = append(enemies, e)
+		enemyAIs = append(enemyAIs, ai)
 	}
 	spawnEnemy()
 	enemySpawnTimer := float32(enemySpawnInterval)
@@ -128,12 +135,19 @@ func main() {
 				state = StateMenu
 			}
 		case StateMenu:
+			// Feed live debug state in so the toggle rows render their ON/OFF label.
+			menu.GodMode = godMode
+			menu.AIDebug = aiDebug
 			switch menu.Update() {
 			case MenuResume:
 				state = StatePlaying
 			case MenuOpenDesigner:
 				designer = NewDesigner()
 				state = StateDesigner
+			case MenuToggleGodMode:
+				godMode = !godMode
+			case MenuToggleAIDebug:
+				aiDebug = !aiDebug
 			case MenuQuit:
 				return
 			}
@@ -191,12 +205,15 @@ func main() {
 			// from our enemy list too so they stop drawing and vanish from the
 			// minimap.
 			liveEnemies := enemies[:0]
-			for _, e := range enemies {
+			liveAIs := enemyAIs[:0]
+			for i, e := range enemies {
 				if !e.Destroyed {
 					liveEnemies = append(liveEnemies, e)
+					liveAIs = append(liveAIs, enemyAIs[i])
 				}
 			}
 			enemies = liveEnemies
+			enemyAIs = liveAIs
 
 			live := projectiles[:0]
 			for _, pr := range projectiles {
@@ -278,6 +295,13 @@ func main() {
 			for _, e := range enemies {
 				e.Draw()
 			}
+			// AI debug overlay: engagement rings and steering-goal lines for each
+			// enemy. Drawn under the ships' guns/projectiles but over the hulls.
+			if aiDebug {
+				for _, ai := range enemyAIs {
+					ai.DrawDebug()
+				}
+			}
 			for _, l := range physics.LooseParts() {
 				l.Draw()
 			}
@@ -326,14 +350,6 @@ func main() {
 			if spacewalking {
 				drawPlayerHealthHUD(player.Health)
 			}
-			// Debug indicator: show god-mode state and its toggle key in the corner.
-			debugLabel := "G: god mode OFF"
-			debugColor := rl.Gray
-			if godMode {
-				debugLabel = "G: GOD MODE ON"
-				debugColor = rl.Lime
-			}
-			rl.DrawText(debugLabel, 6, 6, 10, debugColor)
 			// Stage countdown: a bar in the top-right that drains as time runs out.
 			drawStageTimer(stageTimer / stageDuration)
 			if gameOver {
@@ -363,13 +379,13 @@ func main() {
 }
 
 // drawPlayerHealthHUD draws the astronaut's spacewalk health as a labeled bar in
-// the top-left, below the debug indicator.
+// the top-left corner.
 func drawPlayerHealthHUD(health float32) {
 	frac := health / playerMaxHealth
 	if frac < 0 {
 		frac = 0
 	}
-	const barX, barY int32 = 6, 20
+	const barX, barY int32 = 6, 6
 	const barWidth, barHeight int32 = 60, 6
 	rl.DrawRectangle(barX, barY, barWidth, barHeight, rl.NewColor(0, 0, 0, 160))
 	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
