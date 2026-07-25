@@ -1,22 +1,16 @@
 {
   "parts": [
     {
-      "x": 0,
+      "x": 1,
       "y": 0,
       "type": "Cockpit",
       "facing": "Up"
     },
     {
-      "x": 1,
-      "y": 0,
-      "type": "Slow PDC",
-      "facing": "Up"
-    },
-    {
       "x": 0,
       "y": 1,
-      "type": "Block",
-      "facing": "Up"
+      "type": "Control Thruster",
+      "facing": "Right"
     },
     {
       "x": 1,
@@ -45,8 +39,14 @@
     {
       "x": 5,
       "y": 1,
-      "type": "Control Thruster",
-      "facing": "Left"
+      "type": "Missile Launcher",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 2,
+      "type": "Block",
+      "facing": "Down"
     },
     {
       "x": 2,
