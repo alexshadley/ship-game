@@ -49,9 +49,9 @@ const (
 	collisionShip     cp.CollisionType = 1
 	collisionAsteroid cp.CollisionType = 2
 	// collisionLoose is free-floating debris: it both takes and deals collision
-	// damage against ships, asteroids, and other debris (but not the astronaut, who
-	// bumps it harmlessly), and is culled once battered to zero health — see the
-	// handlers in NewPhysics.
+	// damage against ships and asteroids (but not other debris, nor the astronaut,
+	// both of which it bumps harmlessly), and is culled once battered to zero health
+	// — see the handlers in NewPhysics.
 	// collisionPlayer takes impact damage only from enemy ships; its own hull,
 	// asteroids, and debris are harmless. It deals none.
 	collisionLoose  cp.CollisionType = 3
@@ -209,16 +209,29 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		p.damageShipShapePart(b, impulse)
 	}
 
-	// Loose debris is a hazard in its own right: it chips ship parts, asteroid
-	// impacts chip it, and it grinds against other debris. Each of these damages
-	// the debris too, so a battered chunk eventually breaks apart (culled once its
-	// health hits zero in cullDeadLooseParts).
+	// Loose debris is a hazard in its own right: it chips ship parts and asteroid
+	// impacts chip it. Each of these damages the debris too, so a battered chunk
+	// eventually breaks apart (culled once its health hits zero in
+	// cullDeadLooseParts). Debris bumping other debris is harmless to both — they
+	// bounce (the solver's default) but neither takes damage, so there's no handler.
 	looseAsteroid := space.NewCollisionHandler(collisionLoose, collisionAsteroid)
 	looseAsteroid.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		looseShape, _ := arb.Shapes()
 		damageShapePart(looseShape, arb.TotalImpulse().Length())
 	}
 	looseShip := space.NewCollisionHandler(collisionLoose, collisionShip)
+	// A part the player is towing passes straight through their own hull rather than
+	// shoving the ship around: you're guiding it in to attach, not battering yourself
+	// with it. It still collides (and, below, chips) enemy hulls normally.
+	looseShip.PreSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) bool {
+		looseShape, shipShape := arb.Shapes()
+		if p.grabbedShape(looseShape) {
+			if sb := p.shipBodyFor(shipShape.Body()); sb != nil && sb.ship == p.playerShip {
+				return false
+			}
+		}
+		return true
+	}
 	looseShip.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
 		looseShape, shipShape := arb.Shapes()
 		// A part the player is dragging in to attach mustn't chip the hull it's being
@@ -231,12 +244,14 @@ func NewPhysics(asteroids []*Asteroid) *Physics {
 		damageShapePart(looseShape, impulse)
 		p.damageShipShapePart(shipShape, impulse)
 	}
-	looseLoose := space.NewCollisionHandler(collisionLoose, collisionLoose)
-	looseLoose.PostSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) {
-		a, b := arb.Shapes()
-		impulse := arb.TotalImpulse().Length()
-		damageShapePart(a, impulse)
-		damageShapePart(b, impulse)
+	// A part the player is towing bumps harmlessly past the astronaut instead of
+	// knocking the spacewalker around (debris deals them no damage in any case, so
+	// only the shove needs suppressing). Un-grabbed debris still bounces off them
+	// via the solver's default handling.
+	loosePlayer := space.NewCollisionHandler(collisionLoose, collisionPlayer)
+	loosePlayer.PreSolveFunc = func(arb *cp.Arbiter, _ *cp.Space, _ interface{}) bool {
+		looseShape, _ := arb.Shapes()
+		return !p.grabbedShape(looseShape)
 	}
 
 	// The astronaut only takes impact damage from hard knocks against enemy ships
