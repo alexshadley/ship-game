@@ -44,6 +44,8 @@ func partPrice(t PartType) int {
 		return 20
 	case PartShield:
 		return 15
+	case PartRailgun:
+		return 25
 	default:
 		return 0
 	}

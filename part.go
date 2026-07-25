@@ -31,6 +31,11 @@ const (
 	// ships away from the blast (see FireWeapons and Physics.missileBlast).
 	PartMissileLauncher
 	PartShield
+	// PartRailgun is a heavy hitscan weapon: it fires within a very narrow arc on a
+	// slow reload, striking instantly along a straight line (no projectile) for
+	// heavy damage. Firing kicks the shooter back a little and shoves whatever it
+	// hits a lot more (see FireWeapons and Physics.fireRailgun).
+	PartRailgun
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -69,6 +74,8 @@ func (t PartType) String() string {
 		return "Missile Launcher"
 	case PartShield:
 		return "Shield"
+	case PartRailgun:
+		return "Railgun"
 	default:
 		return "Unknown"
 	}
@@ -235,6 +242,7 @@ var partSpecs = map[PartType]partSpec{
 	PartSlowPDC:         {health: 75, weight: partWeight, color: rl.DarkBrown},
 	PartMissileLauncher: {health: 75, weight: partWeight, color: rl.Maroon},
 	PartShield:          {health: 75, weight: partWeight, color: rl.Blue},
+	PartRailgun:         {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
 }
 
 const (

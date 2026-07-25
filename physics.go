@@ -38,11 +38,13 @@ const (
 	// part (nearest point at the center) takes full damage. The same falloff
 	// scales missileBlastImpulse, the knockback that shoves bodies away from the
 	// blast. missileInterceptRadius is how close a PDC round must pass to a missile
-	// to damage it in flight.
+	// to damage it in flight. missileCollideRadius is how close two opposing
+	// missiles must pass for them to strike each other and both detonate.
 	missileBlastDamage     = 90.0
 	missileBlastRadius     = 3 * cellSize
 	missileBlastImpulse    = 6000.0
 	missileInterceptRadius = 18.0
+	missileCollideRadius   = 22.0
 )
 
 const (
@@ -95,6 +97,19 @@ type Physics struct {
 	// damage from collisions or projectiles — a testing aid, wired in main.
 	playerShip *Ship
 	godMode    *bool
+
+	// beams are the railgun shots fired recently, kept only so their white line
+	// lingers a few frames after the instantaneous hit (see fireRailgun / DrawBeams).
+	beams []*RailgunBeam
+}
+
+// RailgunBeam is the fading white line drawn for one resolved railgun shot: from
+// Start to End (the muzzle to the impact point, or the beam's max reach if it hit
+// nothing). TTL counts down each frame; the beam is dropped when it expires.
+type RailgunBeam struct {
+	Start rl.Vector2
+	End   rl.Vector2
+	TTL   float32
 }
 
 // grabDragSpeed caps how fast (world px/s) a grabbed part is towed toward the
@@ -341,6 +356,29 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 		}
 	}
 
+	// Missile-on-missile: two missiles from different ships that pass within
+	// missileCollideRadius strike each other and both detonate on the spot, so an
+	// inbound missile can be knocked out by another mid-flight. A ship's own
+	// missiles pass through one another so a salvo doesn't self-destruct.
+	for i, a := range projectiles {
+		if a.Kind != projectileMissile || consumed[a] {
+			continue
+		}
+		for _, b := range projectiles[i+1:] {
+			if b.Kind != projectileMissile || consumed[b] || b.Owner == a.Owner {
+				continue
+			}
+			if dist(a.Position, b.Position) > missileCollideRadius {
+				continue
+			}
+			consumed[a] = true
+			consumed[b] = true
+			p.DetonateMissile(a, particles)
+			p.DetonateMissile(b, particles)
+			break
+		}
+	}
+
 	live := projectiles[:0]
 	for _, pr := range projectiles {
 		if consumed[pr] {
@@ -554,6 +592,151 @@ func applyBlastImpulse(body *cp.Body, center rl.Vector2, falloff float32) {
 	}
 	mag := missileBlastImpulse * float64(falloff)
 	body.ApplyImpulseAtWorldPoint(cp.Vector{X: dx / d * mag, Y: dy / d * mag}, cog)
+}
+
+// railgunMarchStep is how far apart (world px) the beam samples the world when
+// hunting for its first hit. Kept well under a cell so a thin structure isn't
+// stepped over.
+const railgunMarchStep = cellSize * 0.3
+
+// fireRailgun resolves one hitscan railgun shot: it marches the beam out from the
+// muzzle until it meets the first ship part (other than the shooter's), piece of
+// loose debris, or asteroid within railgunRange, deals railgunDamage there, and
+// shoves the struck body hard along the beam. Firing also kicks the shooter back
+// a little (a smaller, deliberately unbalanced recoil). Whether or not it connects,
+// a fading white beam is recorded from the muzzle to the impact point (or the
+// beam's max reach) so the instantaneous shot reads on screen.
+func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *ParticleSystem) {
+	dir := shot.Dir
+	end := rl.NewVector2(shot.Origin.X+dir.X*railgunRange, shot.Origin.Y+dir.Y*railgunRange)
+
+	reach := float32(railgunRange)
+	steps := int(reach / railgunMarchStep)
+	for i := 1; i <= steps; i++ {
+		sample := rl.NewVector2(
+			shot.Origin.X+dir.X*railgunMarchStep*float32(i),
+			shot.Origin.Y+dir.Y*railgunMarchStep*float32(i),
+		)
+
+		// Ships: the beam passes through the ship that fired it and strikes the first
+		// part of any other ship it reaches.
+		hitShip := false
+		for _, sb := range p.ships {
+			if sb.ship == shot.Owner {
+				continue
+			}
+			if part := sb.ship.partAtWorld(sample); part != nil {
+				if !p.playerInvincible(sb) {
+					part.Health -= railgunDamage
+					if part.Health < 0 {
+						part.Health = 0
+					}
+				}
+				p.applyRailgunImpact(sb.body, sample, dir)
+				end = sample
+				hitShip = true
+				break
+			}
+		}
+		if hitShip {
+			break
+		}
+
+		// Loose debris (same local-box test as projectileHit): a hit chips it, may
+		// finish it off, and stops the beam.
+		hitLoose := false
+		for li, l := range p.looseParts {
+			sin := float32(math.Sin(float64(l.Rotation)))
+			cos := float32(math.Cos(float64(l.Rotation)))
+			dx := sample.X - l.Position.X
+			dy := sample.Y - l.Position.Y
+			lx := dx*cos + dy*sin
+			ly := -dx*sin + dy*cos
+			if math.Abs(float64(lx)) > cellSize/2 || math.Abs(float64(ly)) > cellSize/2 {
+				continue
+			}
+			p.applyRailgunImpact(p.looseBodies[li], sample, dir)
+			l.Part.Health -= railgunDamage
+			if l.Part.Health <= 0 {
+				p.removeLoosePartAt(li)
+			}
+			end = sample
+			hitLoose = true
+			break
+		}
+		if hitLoose {
+			break
+		}
+
+		// Asteroids stop the beam and get shoved, but (like PDC rounds) take no damage.
+		hitAsteroid := false
+		for ai, a := range p.asteroids {
+			dx := sample.X - a.Position.X
+			dy := sample.Y - a.Position.Y
+			if dx*dx+dy*dy <= a.Size*a.Size {
+				p.applyRailgunImpact(p.asteroidBodies[ai], sample, dir)
+				end = sample
+				hitAsteroid = true
+				break
+			}
+		}
+		if hitAsteroid {
+			break
+		}
+	}
+
+	// The impact reads better with a small spark where the beam lands.
+	if end != rl.NewVector2(shot.Origin.X+dir.X*railgunRange, shot.Origin.Y+dir.Y*railgunRange) {
+		particles.SpawnExplosion(end, cellSize*0.6)
+	}
+
+	// Firing kicks the shooter back along the beam — a clean push at its center of
+	// gravity, smaller than the shove it deals.
+	if ownerBody != nil {
+		cog := ownerBody.LocalToWorld(ownerBody.CenterOfGravity())
+		ownerBody.ApplyImpulseAtWorldPoint(
+			cp.Vector{X: -float64(dir.X) * railgunRecoilImpulse, Y: -float64(dir.Y) * railgunRecoilImpulse},
+			cog,
+		)
+	}
+
+	p.beams = append(p.beams, &RailgunBeam{Start: shot.Origin, End: end, TTL: railgunBeamDuration})
+}
+
+// applyRailgunImpact shoves body along the beam direction at the world point the
+// beam struck. Applying the impulse at the hit point (not the center of gravity)
+// lets it impart spin, so a glancing hit visibly slews the target.
+func (p *Physics) applyRailgunImpact(body *cp.Body, at rl.Vector2, dir rl.Vector2) {
+	body.ApplyImpulseAtWorldPoint(
+		cp.Vector{X: float64(dir.X) * railgunImpactImpulse, Y: float64(dir.Y) * railgunImpactImpulse},
+		cp.Vector{X: float64(at.X), Y: float64(at.Y)},
+	)
+}
+
+// updateBeams ages the recorded railgun beams and drops the expired ones.
+func (p *Physics) updateBeams(dt float32) {
+	live := p.beams[:0]
+	for _, b := range p.beams {
+		b.TTL -= dt
+		if b.TTL > 0 {
+			live = append(live, b)
+		}
+	}
+	p.beams = live
+}
+
+// DrawBeams renders the lingering railgun beams as white lines that fade out over
+// their lifetime. Called from the main render pass in world space.
+func (p *Physics) DrawBeams() {
+	for _, b := range p.beams {
+		frac := b.TTL / railgunBeamDuration
+		if frac < 0 {
+			frac = 0
+		}
+		// A thick, straight, solid white line that fades out over its lifetime.
+		white := rl.NewColor(255, 255, 255, uint8(255*frac))
+		rl.DrawLineEx(b.Start, b.End, 6, white)
+	}
 }
 
 // looseBlastDist returns the distance from world point p to the nearest point of
@@ -793,9 +976,16 @@ func (p *Physics) Update(dt float64, particles *ParticleSystem) []*Projectile {
 
 		emitExhaust(sb.ship, sb.controls, particles)
 
-		projectiles = append(projectiles, sb.ship.FireWeapons(float32(dt), sb.controls)...)
+		shots, rails := sb.ship.FireWeapons(float32(dt), sb.controls)
+		projectiles = append(projectiles, shots...)
+		// Railgun shots are hitscan: resolve each right here, where the shooter's
+		// rigid body (sb.body) is on hand for recoil.
+		for _, r := range rails {
+			p.fireRailgun(r, sb.body, particles)
+		}
 	}
 	p.ships = survivors
+	p.updateBeams(float32(dt))
 
 	for i, a := range p.asteroids {
 		apos := p.asteroidBodies[i].Position()
