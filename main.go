@@ -365,6 +365,8 @@ func main() {
 			for _, pr := range projectiles {
 				pr.Draw()
 			}
+			// Railgun beams draw over the ships as well — a fading white streak.
+			physics.DrawBeams()
 			if spacewalking {
 				// The repair beam draws under the astronaut so it reads as coming from
 				// the suit rather than over it.

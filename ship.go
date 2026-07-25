@@ -402,9 +402,17 @@ func (s *Ship) DrawFiringArcs(aim rl.Vector2) {
 		startDeg := (mount-float32(halfArc))*180/math.Pi - 90
 		endDeg := (mount+float32(halfArc))*180/math.Pi - 90
 
-		// Missile launchers glow red; PDCs glow blue (amber when bearing).
+		// Missile launchers glow red; railguns glow white; PDCs glow blue (amber
+		// when bearing).
 		var fill, edge rl.Color
-		if part.Type == PartMissileLauncher {
+		if part.Type == PartRailgun {
+			fill = rl.NewColor(220, 235, 255, 19)
+			edge = rl.NewColor(220, 235, 255, 78)
+			if active {
+				fill = rl.NewColor(240, 248, 255, 55)
+				edge = rl.NewColor(255, 255, 255, 200)
+			}
+		} else if part.Type == PartMissileLauncher {
 			fill = rl.NewColor(220, 90, 80, 19)
 			edge = rl.NewColor(220, 90, 80, 78)
 			if active {
@@ -452,6 +460,8 @@ func drawPartColored(center rl.Vector2, baseAngle float32, p *Part, fill rl.Colo
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Black)
 	case PartMissileLauncher:
 		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.Yellow)
+	case PartRailgun:
+		drawFacingIndicatorAt(center, baseAngle+p.Facing.angle(), rl.DarkGray)
 	}
 }
 
