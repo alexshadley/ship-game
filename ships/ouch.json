@@ -1,0 +1,67 @@
+{
+  "parts": [
+    {
+      "x": 0,
+      "y": -2,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": -1,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": -1,
+      "type": "Shield",
+      "facing": "Up",
+      "level": 1
+    },
+    {
+      "x": 1,
+      "y": -1,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "type": "Armor",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "type": "Missile Launcher",
+      "facing": "Up",
+      "level": 1
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "type": "Cockpit",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "type": "Missile Launcher",
+      "facing": "Up",
+      "level": 1
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Left"
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Up"
+    }
+  ]
+}
