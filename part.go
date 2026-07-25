@@ -14,6 +14,9 @@ const (
 	// PartArmor is a heavy plated block: triple a normal block's health at twice
 	// its weight (see partSpecs).
 	PartArmor
+	// PartGold is a block-grade hull cell: a normal block's health at twice its
+	// weight, but valuable — it sells for $10 in the shop (see partPrice).
+	PartGold
 	PartEngine
 	// PartControlThruster attaches on one or two sides; its Facing sets the thrust
 	// axis (it thrusts along the perpendicular) and need not point at an attached side.
@@ -62,6 +65,8 @@ func (t PartType) String() string {
 		return "Block"
 	case PartArmor:
 		return "Armor"
+	case PartGold:
+		return "Gold"
 	case PartEngine:
 		return "Engine"
 	case PartControlThruster:
@@ -341,6 +346,8 @@ var partSpecs = map[PartType]partSpec{
 	PartBlock:   {health: 150, weight: partWeight, color: rl.Gray},
 	// Armor is a heavy plate: triple a block's health at twice a normal part's weight.
 	PartArmor:  {health: 450, weight: 2 * partWeight, color: rl.DarkBlue},
+	// Gold is a block-grade cell at twice a normal part's weight; it's valuable cargo.
+	PartGold:   {health: 150, weight: 2 * partWeight, color: rl.Gold},
 	PartEngine: {health: 150, weight: partWeight, color: rl.Orange},
 
 	PartControlThruster: {health: 150, weight: partWeight, color: rl.Purple},

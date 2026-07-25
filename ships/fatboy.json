@@ -94,14 +94,14 @@
     {
       "x": 0,
       "y": 2,
-      "type": "Engine",
-      "facing": "Down"
+      "type": "Block",
+      "facing": "Up"
     },
     {
       "x": 2,
       "y": 2,
-      "type": "Engine",
-      "facing": "Down"
+      "type": "Block",
+      "facing": "Up"
     },
     {
       "x": 3,
@@ -114,6 +114,78 @@
       "y": 2,
       "type": "Control Thruster",
       "facing": "Left"
+    },
+    {
+      "x": -1,
+      "y": 3,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 3,
+      "type": "Gold",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 3,
+      "type": "Gold",
+      "facing": "Down"
+    },
+    {
+      "x": 3,
+      "y": 3,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": 4,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 4,
+      "type": "Gold",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 4,
+      "type": "Gold",
+      "facing": "Down"
+    },
+    {
+      "x": 3,
+      "y": 4,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": 5,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": 5,
+      "type": "Engine",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 5,
+      "type": "Engine",
+      "facing": "Down"
+    },
+    {
+      "x": 3,
+      "y": 5,
+      "type": "Block",
+      "facing": "Up"
     }
   ]
 }
