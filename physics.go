@@ -297,7 +297,7 @@ func (p *Physics) damageShipShapePart(shape *cp.Shape, impulse float64) {
 // consuming any that connect. A round passes harmlessly through the ship that
 // fired it (see Projectile.Owner) but strikes everything else, friend or foe.
 // Survivors are returned.
-func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
+func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *ParticleSystem) []*Projectile {
 	// Point defense: a PDC round that passes close to a hostile missile chips its
 	// health and is spent doing so. A missile shot down this way (health driven to
 	// zero) is destroyed without detonating — the reward for intercepting it. A
@@ -329,7 +329,7 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 		if consumed[pr] {
 			continue
 		}
-		if p.projectileHit(pr) {
+		if p.projectileHit(pr, particles) {
 			continue
 		}
 		live = append(live, pr)
@@ -337,9 +337,9 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile) []*Projectile {
 	return live
 }
 
-func (p *Physics) projectileHit(pr *Projectile) bool {
+func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool {
 	if pr.Kind == projectileMissile {
-		return p.missileHit(pr)
+		return p.missileHit(pr, particles)
 	}
 	// A spacewalking astronaut can be shot; a hit consumes the round and wounds them.
 	if p.player != nil && dist(pr.Position, p.player.Position) <= playerRadius {
@@ -396,7 +396,7 @@ func (p *Physics) projectileHit(pr *Projectile) bool {
 // missileHit tests whether a missile has struck anything solid — a ship other
 // than the one that fired it, loose debris, an asteroid, or the astronaut — and
 // if so detonates it (an area blast; see missileBlast) and consumes it.
-func (p *Physics) missileHit(pr *Projectile) bool {
+func (p *Physics) missileHit(pr *Projectile, particles *ParticleSystem) bool {
 	hit := false
 	for _, sb := range p.ships {
 		if sb.ship == pr.Owner {
@@ -432,6 +432,7 @@ func (p *Physics) missileHit(pr *Projectile) bool {
 		return false
 	}
 	p.missileBlast(pr.Position)
+	particles.SpawnExplosion(pr.Position, missileBlastRadius)
 	return true
 }
 

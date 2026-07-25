@@ -183,12 +183,15 @@ func main() {
 			for _, pr := range projectiles {
 				pr.Update(dt)
 				if !pr.Expired() {
+					if pr.Kind == projectileMissile {
+						pr.EmitExhaust(particles)
+					}
 					live = append(live, pr)
 				}
 			}
 			projectiles = live
 
-			projectiles = physics.ResolveProjectiles(projectiles)
+			projectiles = physics.ResolveProjectiles(projectiles, particles)
 
 			// A spacewalk that runs the astronaut out of health ends the game.
 			if spacewalking && player.Dead() {
