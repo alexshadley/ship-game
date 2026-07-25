@@ -1,0 +1,79 @@
+{
+  "parts": [
+    {
+      "x": 0,
+      "y": -2,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -1,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": 0,
+      "y": -1,
+      "type": "Gold",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": -1,
+      "type": "Block",
+      "facing": "Up"
+    },
+    {
+      "x": -3,
+      "y": 0,
+      "type": "Control Thruster",
+      "facing": "Right"
+    },
+    {
+      "x": -2,
+      "y": 0,
+      "type": "Shield",
+      "facing": "Down",
+      "level": 1
+    },
+    {
+      "x": -1,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 0,
+      "y": 0,
+      "type": "Cockpit",
+      "facing": "Up"
+    },
+    {
+      "x": 1,
+      "y": 0,
+      "type": "Block",
+      "facing": "Down"
+    },
+    {
+      "x": 2,
+      "y": 0,
+      "type": "Shield",
+      "facing": "Down",
+      "level": 1
+    },
+    {
+      "x": 3,
+      "y": 0,
+      "type": "Missile Launcher",
+      "facing": "Up",
+      "level": 1
+    },
+    {
+      "x": 0,
+      "y": 1,
+      "type": "Engine",
+      "facing": "Up"
+    }
+  ]
+}
