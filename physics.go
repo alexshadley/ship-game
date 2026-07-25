@@ -347,7 +347,7 @@ func (p *Physics) ResolveProjectiles(projectiles []*Projectile, particles *Parti
 				continue
 			}
 			consumed[r] = true
-			m.Health -= projectileDamage
+			m.Health -= r.BaseDamage
 			if m.Health <= 0 {
 				consumed[m] = true
 				p.DetonateMissile(m, particles)
@@ -403,7 +403,7 @@ func (p *Physics) projectileHit(pr *Projectile, particles *ParticleSystem) bool 
 			if !p.playerInvincible(sb) {
 				amount := pr.Damage()
 				if pr.Kind == projectileMissile {
-					amount = missileBlastDamage
+					amount = pr.BaseDamage
 				}
 				shield.damageShield(amount)
 			}
@@ -516,7 +516,7 @@ func (p *Physics) missileHit(pr *Projectile, particles *ParticleSystem) bool {
 // impact, a PDC interception, or running out of fuel — routes through here so a
 // missile always goes off rather than silently vanishing.
 func (p *Physics) DetonateMissile(pr *Projectile, particles *ParticleSystem) {
-	p.missileBlast(pr.Position)
+	p.missileBlast(pr.Position, pr.BaseDamage)
 	particles.SpawnExplosion(pr.Position, missileBlastRadius)
 }
 
@@ -526,7 +526,7 @@ func (p *Physics) DetonateMissile(pr *Projectile, particles *ParticleSystem) {
 // nearest point (so a directly hit part takes full damage), and every affected
 // body is shoved away from the blast by an impulse with the same falloff.
 // Dead parts and debris are swept up by the usual breakage/cull passes next step.
-func (p *Physics) missileBlast(center rl.Vector2) {
+func (p *Physics) missileBlast(center rl.Vector2, damage float32) {
 	for _, sb := range p.ships {
 		if p.playerInvincible(sb) {
 			continue
@@ -540,7 +540,7 @@ func (p *Physics) missileBlast(center rl.Vector2) {
 			if d >= missileBlastRadius {
 				continue
 			}
-			part.Health -= missileBlastDamage * (1 - d/missileBlastRadius)
+			part.Health -= damage * (1 - d/missileBlastRadius)
 			if part.Health < 0 {
 				part.Health = 0
 			}
@@ -556,7 +556,7 @@ func (p *Physics) missileBlast(center rl.Vector2) {
 			continue
 		}
 		falloff := 1 - d/missileBlastRadius
-		l.Part.Health -= missileBlastDamage * falloff
+		l.Part.Health -= damage * falloff
 		if l.Part.Health < 0 {
 			l.Part.Health = 0
 		}
@@ -570,7 +570,7 @@ func (p *Physics) missileBlast(center rl.Vector2) {
 		}
 		if d < missileBlastRadius {
 			falloff := 1 - d/missileBlastRadius
-			p.damagePlayer(float64(missileBlastDamage * falloff))
+			p.damagePlayer(float64(damage * falloff))
 			applyBlastImpulse(p.playerBody, center, falloff)
 		}
 	}
@@ -627,7 +627,7 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 			}
 			if part := sb.ship.partAtWorld(sample); part != nil {
 				if !p.playerInvincible(sb) {
-					part.Health -= railgunDamage
+					part.Health -= shot.Damage
 					if part.Health < 0 {
 						part.Health = 0
 					}
@@ -656,7 +656,7 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 				continue
 			}
 			p.applyRailgunImpact(p.looseBodies[li], sample, dir)
-			l.Part.Health -= railgunDamage
+			l.Part.Health -= shot.Damage
 			if l.Part.Health <= 0 {
 				p.removeLoosePartAt(li)
 			}
@@ -1174,6 +1174,9 @@ func (p *Physics) SeedLooseParts(n int) {
 		r := loosePartMinRadius + rand.Float64()*(loosePartMaxRadius-loosePartMinRadius)
 		pos := rl.NewVector2(float32(math.Cos(angle)*r), float32(math.Sin(angle)*r))
 		part := NewPart(scavengePartTypes[rand.Intn(len(scavengePartTypes))], Facing(rand.Intn(4)))
+		if part.Type.isLeveled() && rand.Float32() < 0.5 {
+			part.Modifiers = append(part.Modifiers, PartModifier(rand.Intn(int(partModifierCount))))
+		}
 		p.addLoosePart(part, pos, rand.Float32()*2*math.Pi, cp.Vector{}, 0)
 	}
 }

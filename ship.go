@@ -181,8 +181,8 @@ func DefaultShip(pos rl.Vector2) *Ship {
 	s.AddPart(GridCoord{X: 2, Y: 0}, NewPart(PartControlThruster, FacingLeft))
 	// PDCs sit at the front flanks with a clear line of fire; the cells directly
 	// ahead of them are empty rather than walled off by the nose blocks.
-	s.AddPart(GridCoord{X: -1, Y: -1}, NewPart(PartPDC, FacingUp))
-	s.AddPart(GridCoord{X: 1, Y: -1}, NewPart(PartPDC, FacingUp))
+	s.AddPart(GridCoord{X: -1, Y: -1}, NewLeveledPart(PartPDC, FacingUp, 2))
+	s.AddPart(GridCoord{X: 1, Y: -1}, NewLeveledPart(PartPDC, FacingUp, 2))
 	// A missile launcher caps the nose, firing straight ahead over the gap between
 	// the forward blocks.
 	s.AddPart(GridCoord{X: 0, Y: -3}, NewPart(PartMissileLauncher, FacingUp))
@@ -457,7 +457,7 @@ func (s *Ship) DrawShields() {
 		center := s.worldPoint(float32(c.X)*cellSize, float32(c.Y)*cellSize)
 
 		if part.shieldActive() {
-			frac := clamp01(part.ShieldHealth / shieldMaxHealth)
+			frac := clamp01(part.ShieldHealth / part.shieldMax())
 			rl.DrawCircleV(center, shieldRadius, rl.NewColor(120, 180, 255, uint8(20*frac)))
 			for i := 0; i < shimmerSegments; i++ {
 				a0 := float32(i) / shimmerSegments * 360

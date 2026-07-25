@@ -412,6 +412,13 @@ func main() {
 			}
 			// Stage countdown: a bar in the top-right that drains as time runs out.
 			drawStageTimer(stageTimer / stageDuration)
+			if state == StatePlaying && spacewalking && !gameOver {
+				if p := hoveredWorldPart(physics, ship, enemies, camera); p != nil {
+					m := rl.GetMousePosition()
+					anchor := rl.NewVector2(m.X*float32(gameWidth)/windowWidth, m.Y*float32(gameHeight)/windowHeight)
+					drawTooltip(partTooltipLines(p), anchor, 10, gameWidth, gameHeight)
+				}
+			}
 			if gameOver {
 				drawGameOver()
 			}
