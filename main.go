@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"math"
@@ -12,29 +13,61 @@ const (
 	gameWidth  = 640
 	gameHeight = 360
 
+	// Logical UI resolution the menu and designer lay out against. The actual
+	// window can be any size (see the -res/-fullscreen flags); the UI renders into
+	// a texture at this resolution and is scaled to fit, so this stays fixed.
 	windowWidth  = 1920
 	windowHeight = 1080
 
-	pilotingZoom      = 0.25
+	pilotingZoom      = 0.15
 	spacewalkZoom     = 0.7
 	zoomEaseSpeed     = 3.0
 	cameraFollowSpeed = 20.0
 
-	// While piloting, the scroll wheel adjusts the zoom between these bounds.
-	// pilotZoomMin frames the widest swath of the battlefield (most zoomed out);
-	// pilotZoomMax matches the starting pilotingZoom, so the default view is the
-	// most zoomed-in you can get and the wheel only pulls the camera back out.
-	pilotZoomMin  = 0.1
-	pilotZoomMax  = pilotingZoom
-	pilotZoomStep = 0.005
+	// While piloting, the scroll wheel and the -/= keys adjust the zoom between
+	// these bounds. The default (pilotingZoom) sits between them so the view can be
+	// pulled both further out (toward pilotZoomMin) and in (toward pilotZoomMax).
+	pilotZoomMin  = 0.05
+	pilotZoomMax  = 0.4
+	pilotZoomStep = 0.01
+	// Per-second zoom rate while a zoom key is held (trackpad users have no wheel).
+	pilotZoomKeyRate = 0.25
 
 	// A stage lasts this many seconds; survive to the end to clear it.
 	stageDuration = 180.0
 )
 
 func main() {
+	// Window sizing: -res WxH picks an explicit window size, -fullscreen starts
+	// fullscreen at the monitor's native resolution. With neither, the window is
+	// fitted to the current monitor so it never opens larger than the screen.
+	resFlag := flag.String("res", "", "window resolution as WxH (e.g. 1280x720); default fits the monitor")
+	fullscreenFlag := flag.Bool("fullscreen", false, "start in fullscreen at the monitor's native resolution")
+	flag.Parse()
+
+	// Resolve the windowed size: explicit -res, else a fit to the current monitor.
+	// Probe the monitor with a throwaway window first, then create the real window
+	// once at the final size. Resizing a window after InitWindow desyncs the GL
+	// framebuffer from the drawable on HiDPI Macs and renders the scene into a
+	// corner, so we deliberately avoid SetWindowSize.
 	rl.InitWindow(windowWidth, windowHeight, "Ship Game")
+	mon := rl.GetCurrentMonitor()
+	monW, monH := rl.GetMonitorWidth(mon), rl.GetMonitorHeight(mon)
+	winW, winH := fitToMonitor(int32(monW), int32(monH))
+	if w, h, ok := parseResolution(*resFlag); ok {
+		winW, winH = w, h
+	} else if *resFlag != "" {
+		log.Printf("ignoring invalid -res %q; expected WxH like 1280x720", *resFlag)
+	}
+	rl.CloseWindow()
+
+	rl.InitWindow(winW, winH, "Ship Game")
 	defer rl.CloseWindow()
+	// Center the window on the monitor.
+	rl.SetWindowPosition((monW-int(winW))/2, (monH-int(winH))/2)
+	if *fullscreenFlag {
+		toggleFullscreen(winW, winH)
+	}
 
 	rl.SetTargetFPS(60)
 	// Escape opens the pause menu rather than closing the window (raylib's default).
@@ -42,6 +75,11 @@ func main() {
 
 	target := rl.LoadRenderTexture(gameWidth, gameHeight)
 	defer rl.UnloadRenderTexture(target)
+
+	// The menu and designer draw at the logical UI resolution into this texture,
+	// which is then scaled to the window alongside the game world.
+	uiTarget := rl.LoadRenderTexture(windowWidth, windowHeight)
+	defer rl.UnloadRenderTexture(uiTarget)
 
 	ship := LoadPlayerShip(rl.NewVector2(0, 0))
 	if err := ship.Validate(); err != nil {
@@ -58,9 +96,10 @@ func main() {
 	}
 
 	// Height is negative: OpenGL render textures have their origin at bottom-left,
-	// so the source must be flipped vertically.
+	// so the source must be flipped vertically. The destination (viewport) is
+	// computed each frame from the current window size.
 	src := rl.NewRectangle(0, 0, float32(target.Texture.Width), -float32(target.Texture.Height))
-	dst := rl.NewRectangle(0, 0, windowWidth, windowHeight)
+	uiSrc := rl.NewRectangle(0, 0, float32(uiTarget.Texture.Width), -float32(uiTarget.Texture.Height))
 
 	asteroids := DefaultAsteroids()
 	physics := NewPhysics(asteroids)
@@ -167,6 +206,11 @@ func main() {
 
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
+
+		// F11 toggles fullscreen at any time, returning to the windowed size.
+		if rl.IsKeyPressed(rl.KeyF11) {
+			toggleFullscreen(winW, winH)
+		}
 
 		switch state {
 		case StatePlaying:
@@ -290,11 +334,18 @@ func main() {
 				gameOver = true
 			}
 
-			// Scrolling while piloting zooms the view; scrolling in and out is
-			// disabled on a spacewalk, where the framing is fixed.
+			// Scrolling or holding the -/= keys while piloting zooms the view; both
+			// are disabled on a spacewalk, where the framing is fixed. The keys are
+			// the primary control for trackpads, which don't emit wheel events.
 			if !spacewalking {
 				if wheel := rl.GetMouseWheelMove(); wheel != 0 {
 					pilotZoom = clamp(pilotZoom+wheel*pilotZoomStep, pilotZoomMin, pilotZoomMax)
+				}
+				if rl.IsKeyDown(rl.KeyEqual) || rl.IsKeyDown(rl.KeyKpAdd) {
+					pilotZoom = clamp(pilotZoom+pilotZoomKeyRate*dt, pilotZoomMin, pilotZoomMax)
+				}
+				if rl.IsKeyDown(rl.KeyMinus) || rl.IsKeyDown(rl.KeyKpSubtract) {
+					pilotZoom = clamp(pilotZoom-pilotZoomKeyRate*dt, pilotZoomMin, pilotZoomMax)
 				}
 			}
 
@@ -387,7 +438,7 @@ func main() {
 			rl.EndMode2D()
 
 			var minimapPlayer *Player
-			hint := "hold LMB: fire PDCs  ·  F: spacewalk"
+			hint := "hold LMB: fire PDCs  ·  F: spacewalk  ·  -/=: zoom"
 			if spacewalking {
 				minimapPlayer = &player
 				hint = "WASD: move  ·  hold LMB: grab / pry off part  ·  hold RMB: repair"
@@ -418,20 +469,41 @@ func main() {
 			rl.EndTextureMode()
 		}
 
+		// The menu and designer draw into the UI texture (input + draw), outside
+		// BeginDrawing so their render-texture pass doesn't nest inside it. Any
+		// state transition they request is applied after this frame is presented.
+		designerDone := false
+		switch state {
+		case StateMenu:
+			rl.BeginTextureMode(uiTarget)
+			// Transparent so the frozen game frame shows through behind the overlay.
+			rl.ClearBackground(rl.Blank)
+			menu.Draw()
+			rl.EndTextureMode()
+		case StateDesigner, StateShop:
+			rl.BeginTextureMode(uiTarget)
+			designerDone = designer.Frame()
+			rl.EndTextureMode()
+		}
+
+		// The single letterboxed viewport frames both logical targets (both 16:9).
+		vp := currentViewport()
+		origin := rl.NewVector2(0, 0)
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
 		switch state {
 		case StatePlaying, StateMenu:
-			rl.DrawTexturePro(target.Texture, src, dst, rl.NewVector2(0, 0), 0, rl.White)
+			rl.DrawTexturePro(target.Texture, src, vp, origin, 0, rl.White)
 			if state == StateMenu {
-				menu.Draw()
+				rl.DrawTexturePro(uiTarget.Texture, uiSrc, vp, origin, 0, rl.White)
 			}
-		case StateDesigner:
-			if designer.Frame() {
-				state = StateMenu
-			}
-		case StateShop:
-			if designer.Frame() {
+		case StateDesigner, StateShop:
+			rl.DrawTexturePro(uiTarget.Texture, uiSrc, vp, origin, 0, rl.White)
+		}
+		rl.EndDrawing()
+
+		if designerDone {
+			if state == StateShop {
 				// The shop edited the live ship's parts; regenerate its physics body
 				// so the changes take effect back in the game.
 				physics.RebuildShipBody(ship)
@@ -442,9 +514,10 @@ func main() {
 					// Backed out (Esc / Leave) — return to the pause menu.
 					state = StateMenu
 				}
+			} else {
+				state = StateMenu
 			}
 		}
-		rl.EndDrawing()
 	}
 }
 
