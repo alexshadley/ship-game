@@ -27,6 +27,9 @@ const (
 	pilotZoomMin  = 0.1
 	pilotZoomMax  = pilotingZoom
 	pilotZoomStep = 0.005
+
+	// A stage lasts this many seconds; survive to the end to clear it.
+	stageDuration = 180.0
 )
 
 func main() {
@@ -78,6 +81,11 @@ func main() {
 	// Set once the astronaut's health runs out on a spacewalk. The simulation
 	// freezes and a GAME OVER banner takes over the HUD.
 	gameOver := false
+
+	// Counts down from stageDuration while piloting. Surviving until it hits zero
+	// sets stageCleared, which freezes the sim and raises a STAGE CLEARED banner.
+	stageTimer := float32(stageDuration)
+	stageCleared := false
 
 	// Debug god mode (toggle with G): while on, the player's ship takes no damage,
 	// so scavenging and other mechanics can be tested without dying.
@@ -136,10 +144,17 @@ func main() {
 
 		// Once the astronaut is gone the world stops simulating; only the render
 		// pass below keeps running so the GAME OVER banner stays on screen.
-		if state == StatePlaying && !gameOver {
+		if state == StatePlaying && !gameOver && !stageCleared {
 			// Toggle debug god mode (player ship invincible) with G.
 			if rl.IsKeyPressed(rl.KeyG) {
 				godMode = !godMode
+			}
+
+			// Count down the stage clock; lasting until it empties clears the stage.
+			stageTimer -= dt
+			if stageTimer <= 0 {
+				stageTimer = 0
+				stageCleared = true
 			}
 
 			// Periodically send in another enemy from beyond the edge of the view.
@@ -203,8 +218,11 @@ func main() {
 
 			projectiles = physics.ResolveProjectiles(projectiles, particles)
 
-			// A spacewalk that runs the astronaut out of health ends the game.
-			if spacewalking && player.Dead() {
+			// A spacewalk that runs the astronaut out of health ends the game,
+			// unless the stage clock just cleared on this same frame. Losing the
+			// cockpit while still aboard (not out on a walk) is just as fatal.
+			died := (spacewalking && player.Dead()) || (!spacewalking && ship.Destroyed)
+			if died && !stageCleared {
 				gameOver = true
 			}
 
@@ -284,7 +302,7 @@ func main() {
 			}
 			// While piloting, mark where the PDCs are aiming. Hidden on spacewalks
 			// (LMB grabs parts, not fire) and once the run is over.
-			if state == StatePlaying && !spacewalking && !gameOver {
+			if state == StatePlaying && !spacewalking && !gameOver && !stageCleared {
 				drawFireCrosshair(camera)
 			}
 			rl.EndMode2D()
@@ -316,8 +334,13 @@ func main() {
 				debugColor = rl.Lime
 			}
 			rl.DrawText(debugLabel, 6, 6, 10, debugColor)
+			// Stage countdown: a bar in the top-right that drains as time runs out.
+			drawStageTimer(stageTimer / stageDuration)
 			if gameOver {
 				drawGameOver()
+			}
+			if stageCleared {
+				drawStageCleared()
 			}
 			rl.EndTextureMode()
 		}
@@ -352,6 +375,34 @@ func drawPlayerHealthHUD(health float32) {
 	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
 	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
 	rl.DrawText(fmt.Sprintf("HP %d", int(math.Ceil(float64(health)))), barX+barWidth+4, barY-2, 10, rl.RayWhite)
+}
+
+// drawStageTimer draws the stage countdown as a small bar in the top-right of the
+// HUD. frac is the fraction of time remaining (1 at the start, 0 when it ends);
+// the filled portion drains from the right as the clock winds down.
+func drawStageTimer(frac float32) {
+	if frac < 0 {
+		frac = 0
+	}
+	const barWidth, barHeight int32 = 90, 6
+	const barY, barMargin int32 = 6, 6
+	barX := gameWidth - barWidth - barMargin
+	rl.DrawRectangle(barX, barY, barWidth, barHeight, rl.NewColor(0, 0, 0, 160))
+	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, rl.NewColor(120, 180, 255, 255))
+	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
+}
+
+// drawStageCleared dims the frozen scene and centers a victory banner over it.
+func drawStageCleared() {
+	rl.DrawRectangle(0, 0, gameWidth, gameHeight, rl.NewColor(0, 0, 0, 140))
+	const label = "STAGE CLEARED"
+	const fontSize int32 = 40
+	w := rl.MeasureText(label, fontSize)
+	rl.DrawText(label, (gameWidth-w)/2, gameHeight/2-fontSize/2, fontSize, rl.Lime)
+	const sub = "you survived"
+	const subSize int32 = 16
+	sw := rl.MeasureText(sub, subSize)
+	rl.DrawText(sub, (gameWidth-sw)/2, gameHeight/2+fontSize/2+6, subSize, rl.RayWhite)
 }
 
 // drawGameOver dims the frozen scene and centers a GAME OVER banner over it.
