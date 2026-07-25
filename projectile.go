@@ -277,11 +277,6 @@ func (t PartType) engagementRange() float32 {
 // spit fast, short-ranged rounds; missile launchers loose a slow, accelerating,
 // destructible missile.
 func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
-	target := rl.NewVector2(
-		s.Position.X+controls.FireTarget.X,
-		s.Position.Y+controls.FireTarget.Y,
-	)
-
 	var shots []*Projectile
 	for c, part := range s.Parts {
 		if !part.Type.isWeapon() {
@@ -289,15 +284,23 @@ func (s *Ship) FireWeapons(dt float32, controls Controls) []*Projectile {
 		}
 
 		part.FireCooldown -= dt
-		// PDCs fire on the main trigger; missile launchers have their own trigger
-		// so the player can loose the two weapon types independently.
+		// PDCs fire on the main trigger and aim at PDCTarget; missile launchers
+		// have their own trigger and aim at MissileTarget, so the two weapon types
+		// fire independently and can point at different things (an enemy PDC swats
+		// an inbound missile while its launcher stays on the target ship).
 		triggered := controls.Fire
+		fireTarget := controls.PDCTarget
 		if part.Type == PartMissileLauncher {
 			triggered = controls.FireMissiles
+			fireTarget = controls.MissileTarget
 		}
 		if !triggered || part.FireCooldown > 0 {
 			continue
 		}
+		target := rl.NewVector2(
+			s.Position.X+fireTarget.X,
+			s.Position.Y+fireTarget.Y,
+		)
 
 		// Aim from this mount's own cell so converging fire actually converges
 		// on the target point rather than running parallel.

@@ -101,12 +101,31 @@ func main() {
 		player:       PlayerInput{camera: &camera, ship: ship},
 	})
 
+	var projectiles []*Projectile
+
+	// playerThreats lists the world points an enemy PDC should prefer over the
+	// player's hull each frame: the player's in-flight missiles and, while
+	// spacewalking, the exposed astronaut. Enemies retask their guns to swat these
+	// down once they drift into PDC range.
+	playerThreats := func() []rl.Vector2 {
+		var pts []rl.Vector2
+		for _, pr := range projectiles {
+			if pr.Kind == projectileMissile && pr.Owner == ship {
+				pts = append(pts, pr.Position)
+			}
+		}
+		if spacewalking && !player.Dead() {
+			pts = append(pts, player.Position)
+		}
+		return pts
+	}
+
 	// Enemies arrive from offscreen: one at the start, then another every
 	// enemySpawnInterval seconds.
 	var enemies []*Ship
 	var enemyAIs []*EnemyAI
 	spawnEnemy := func() {
-		e, ai := SpawnEnemy(ship)
+		e, ai := SpawnEnemy(ship, playerThreats)
 		physics.AddShip(e, ai)
 		enemies = append(enemies, e)
 		enemyAIs = append(enemyAIs, ai)
@@ -119,8 +138,6 @@ func main() {
 	physics.playerShip = ship
 	physics.godMode = &godMode
 	physics.SeedLooseParts(3)
-
-	var projectiles []*Projectile
 
 	state := StatePlaying
 	var menu Menu

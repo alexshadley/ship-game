@@ -18,10 +18,13 @@ const (
 )
 
 // AIWorld is the read-only snapshot of the world the enemy AI reads to decide its
-// controls: the ship it flies (Self) and the ship it hunts (Target).
+// controls: the ship it flies (Self), the ship it hunts (Target), and Threats —
+// world points its PDC should prefer over the target ship (the player's in-flight
+// missiles and, while spacewalking, the exposed astronaut).
 type AIWorld struct {
-	Self   *Ship
-	Target *Ship
+	Self    *Ship
+	Target  *Ship
+	Threats []rl.Vector2
 }
 
 // enemyControls is the enemy AI: a pure function from a snapshot of the world to
@@ -49,18 +52,46 @@ func enemyControls(w AIWorld) (Controls, float32) {
 		thrust = 1
 	}
 
-	// The enemy always holds its trigger and aims at the player's cockpit (the
-	// target ship's origin is its cockpit cell, so the offset from our origin is
-	// simply the position delta). Each weapon mount only actually fires once the
-	// player is within that weapon's engagement range — see FireWeapons.
+	// The enemy always holds both triggers. The missile launcher aims at the
+	// player's cockpit (the target ship's origin is its cockpit cell, so the
+	// offset from our origin is simply the position delta). The PDC aims there too
+	// by default, but if an inbound player missile or the spacewalking astronaut
+	// has drifted within PDC range it retasks onto the nearest such threat (no
+	// lead) to swat the immediate danger. Each mount only actually fires once its
+	// target is within that weapon's engagement range — see FireWeapons.
+	missileTarget := rl.NewVector2(dx, dy)
+	pdcTarget := missileTarget
+	if threat, ok := nearestPDCThreat(self.Position, w.Threats); ok {
+		pdcTarget = rl.NewVector2(threat.X-self.Position.X, threat.Y-self.Position.Y)
+	}
 	return Controls{
 		Thrust:                 thrust,
 		Turn:                   turn,
 		Fire:                   true,
 		FireMissiles:           true,
-		FireTarget:             rl.NewVector2(dx, dy),
+		PDCTarget:              pdcTarget,
+		MissileTarget:          missileTarget,
 		EnforceEngagementRange: true,
 	}, desired
+}
+
+// nearestPDCThreat returns the closest threat point within pdcEngagementRange of
+// origin, if any. The enemy retasks its PDC onto it — an inbound player missile
+// or the spacewalking astronaut — to swat the immediate danger instead of
+// peppering the target's hull. Threats farther than a PDC round can reach are
+// ignored, so distant missiles don't pull the guns off the ship.
+func nearestPDCThreat(origin rl.Vector2, threats []rl.Vector2) (rl.Vector2, bool) {
+	var best rl.Vector2
+	found := false
+	bestDist := float32(pdcEngagementRange)
+	for _, t := range threats {
+		if d := dist(origin, t); d <= bestDist {
+			bestDist = d
+			best = t
+			found = true
+		}
+	}
+	return best, found
 }
 
 // maxEngagementRange is the largest engagement range across the ship's weapon
