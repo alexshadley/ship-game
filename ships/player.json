@@ -2,13 +2,6 @@
   "parts": [
     {
       "x": 0,
-      "y": -4,
-      "type": "Shield",
-      "facing": "Up",
-      "level": 1
-    },
-    {
-      "x": 0,
       "y": -3,
       "type": "Block",
       "facing": "Up"
@@ -16,9 +9,8 @@
     {
       "x": -1,
       "y": -2,
-      "type": "Auto-Turret",
-      "facing": "Left",
-      "level": 1
+      "type": "Block",
+      "facing": "Up"
     },
     {
       "x": 0,
@@ -30,9 +22,8 @@
     {
       "x": 1,
       "y": -2,
-      "type": "Auto-Turret",
-      "facing": "Right",
-      "level": 1
+      "type": "Block",
+      "facing": "Up"
     },
     {
       "x": -1,
@@ -53,12 +44,6 @@
       "type": "PDC",
       "facing": "Right",
       "level": 2
-    },
-    {
-      "x": 2,
-      "y": -1,
-      "type": "Rattlesnake Missile",
-      "facing": "Up"
     },
     {
       "x": -2,
