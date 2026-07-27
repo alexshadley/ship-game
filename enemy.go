@@ -86,8 +86,8 @@ func (ai *EnemyAI) DrawDebug() {
 const (
 	// enemySpawnRadius sits well beyond the piloting view's visible corner so
 	// enemies always arrive from offscreen.
-	enemySpawnRadius   = 3600
-	enemySpawnInterval = 30
+	enemySpawnRadius   = 5400
+	enemySpawnInterval = 45
 )
 
 func SpawnEnemy(target *Ship, threats func() []rl.Vector2) (*Ship, *EnemyAI) {
