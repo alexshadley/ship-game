@@ -26,7 +26,7 @@ const (
 
 	asteroidDensity = 0.02
 
-	damagePerImpulse = 0.01
+	damagePerImpulse = 0.015
 	projectileDamage = 5.0
 	// playerDamagePerImpulse scales collision impulse into astronaut damage. The
 	// spacesuit is fragile (15 hp), so ramming an asteroid or a ship hurts fast.
@@ -606,8 +606,8 @@ const railgunMarchStep = cellSize * 0.3
 // fireRailgun resolves one hitscan railgun shot: it marches the beam out from the
 // muzzle until it meets the first ship part (other than the shooter's), piece of
 // loose debris, or asteroid within railgunRange, deals railgunDamage there, and
-// shoves the struck body hard along the beam. Firing also kicks the shooter back
-// a little (a smaller, deliberately unbalanced recoil). Whether or not it connects,
+// shoves the struck body along the beam. Firing also kicks the shooter back by an
+// equal and opposite recoil. Whether or not it connects,
 // a fading white beam is recorded from the muzzle to the impact point (or the
 // beam's max reach) so the instantaneous shot reads on screen.
 func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *ParticleSystem) {
