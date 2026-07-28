@@ -623,11 +623,23 @@ func (p *Physics) fireRailgun(shot RailgunShot, ownerBody *cp.Body, particles *P
 		)
 
 		// Ships: the beam passes through the ship that fired it and strikes the first
-		// part of any other ship it reaches.
+		// part of any other ship it reaches. An active shield blocks the shot outright,
+		// even if it lacks the health to fully absorb the railgun's damage.
 		hitShip := false
 		for _, sb := range p.ships {
 			if sb.ship == shot.Owner {
 				continue
+			}
+			if shield, center := sb.ship.shieldCovering(sample); shield != nil {
+				angle := float32(math.Atan2(float64(sample.Y-center.Y), float64(sample.X-center.X)) * 180 / math.Pi)
+				shield.addShieldImpact(angle)
+				if !p.playerInvincible(sb) {
+					shield.damageShield(shot.Damage)
+				}
+				p.applyRailgunImpact(sb.body, sample, dir)
+				end = sample
+				hitShip = true
+				break
 			}
 			if part := sb.ship.partAtWorld(sample); part != nil {
 				if !p.playerInvincible(sb) {
