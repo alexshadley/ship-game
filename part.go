@@ -34,11 +34,10 @@ const (
 	// ships away from the blast (see FireWeapons and Physics.missileBlast).
 	PartMissileLauncher
 	PartShield
-	// PartRailgun is a heavy hitscan weapon: it fires only when the ship's energy is
-	// fully charged, dumping ALL of it into one instant strike along a straight line
-	// (no projectile). Damage and knockback scale with the energy spent, so a ship
-	// with bigger reserves hits harder but waits longer between shots (see
-	// FireWeapons and Physics.fireRailgun).
+	// PartRailgun is a heavy hitscan weapon: it fires within a very narrow arc on a
+	// slow reload, striking instantly along a straight line (no projectile) for
+	// heavy damage. Firing kicks the shooter back a little and shoves whatever it
+	// hits a lot more (see FireWeapons and Physics.fireRailgun).
 	PartRailgun
 	// PartRattlesnakeMissile fires the same destructible, area-blast missile as a
 	// PartMissileLauncher, but the round ejects out the mount's right side and
@@ -51,13 +50,6 @@ const (
 	// spitting PDC-style rounds while the player's auto-turret toggle is armed (see
 	// FireWeapons and Controls.AutoFire). Enemy ships fire theirs at the player.
 	PartAutoTurret
-	// PartBattery extends a ship's energy reserves: each one raises the maximum
-	// energy the ship can store (see Ship.EnergyMax). It has no facing or firing
-	// behavior of its own.
-	PartBattery
-	// PartCharger speeds a ship's energy recharge: each one adds to the rate at
-	// which reserves refill over time (see Ship.EnergyRegen).
-	PartCharger
 
 	// partTypeCount is the sentinel one past the last real part. Callers that need
 	// "every part" (the designer palette, the file-format parser) iterate up to it,
@@ -104,10 +96,6 @@ func (t PartType) String() string {
 		return "Rattlesnake Missile"
 	case PartAutoTurret:
 		return "Auto-Turret"
-	case PartBattery:
-		return "Battery"
-	case PartCharger:
-		return "Charger"
 	default:
 		return "Unknown"
 	}
@@ -272,17 +260,11 @@ type Part struct {
 	// any new target until it fires, but a spin of the ship still swings the shot.
 	// Only meaningful while RailgunCharge > 0.
 	RailgunAim float32
-	// RailgunEnergy is the ship's energy reserve captured when the warm-up began. The
-	// reserve is bled down linearly across the warm-up and this sets both the drain
-	// rate and how far the shot's damage/knockback scale (see FireWeapons). Only
-	// meaningful while RailgunCharge > 0.
-	RailgunEnergy float32
 
-	// ShieldImpacts are the transient hit flashes on a shield bubble. Shields no
-	// longer have their own health pool — they block hits by draining the ship's
-	// energy (see Ship.Energy and shieldEfficiency) — so only the visual impacts
-	// live on the part.
-	ShieldImpacts []shieldImpact
+	ShieldHealth     float32
+	ShieldDownTimer  float32
+	ShieldRegenDelay float32
+	ShieldImpacts    []shieldImpact
 }
 
 type shieldImpact struct {
@@ -313,32 +295,64 @@ func (p *Part) weaponFireInterval() float32 {
 	return p.Type.fireInterval() / p.combatMults().fireRate
 }
 
-// shieldEfficiency is how many points of incoming damage this shield neutralizes
-// per unit of ship energy spent. A base shield is 1:1; leveling it up (capacity
-// mult) makes it soak more damage for the same energy. See Ship.shieldBlock.
-func (p *Part) shieldEfficiency() float32 {
-	return p.combatMults().capacity
+func (p *Part) shieldMax() float32 {
+	return shieldMaxHealth * p.combatMults().capacity
+}
+
+func (p *Part) shieldRegen() float32 {
+	return shieldRegenRate * p.combatMults().regen
+}
+
+func (p *Part) shieldActive() bool {
+	return p.Type == PartShield && p.ShieldDownTimer <= 0 && p.ShieldHealth > 0
+}
+
+func (p *Part) damageShield(amount float32) {
+	p.ShieldHealth -= amount
+	p.ShieldRegenDelay = shieldRegenDelay
+	if p.ShieldHealth <= 0 {
+		p.ShieldHealth = 0
+		p.ShieldDownTimer = shieldDownDuration
+	}
 }
 
 func (p *Part) addShieldImpact(angleDeg float32) {
 	p.ShieldImpacts = append(p.ShieldImpacts, shieldImpact{angle: angleDeg, timer: shieldFlashDuration})
 }
 
-// updateShield ages this shield's transient hit flashes. Shield charge itself now
-// lives in the ship's energy pool (see Ship.updateEnergy), so nothing else is
-// tracked per part.
 func (p *Part) updateShield(dt float32) {
-	if p.Type != PartShield || len(p.ShieldImpacts) == 0 {
+	if p.Type != PartShield {
 		return
 	}
-	kept := p.ShieldImpacts[:0]
-	for _, im := range p.ShieldImpacts {
-		im.timer -= dt
-		if im.timer > 0 {
-			kept = append(kept, im)
+	if len(p.ShieldImpacts) > 0 {
+		kept := p.ShieldImpacts[:0]
+		for _, im := range p.ShieldImpacts {
+			im.timer -= dt
+			if im.timer > 0 {
+				kept = append(kept, im)
+			}
+		}
+		p.ShieldImpacts = kept
+	}
+	if p.ShieldDownTimer > 0 {
+		p.ShieldDownTimer -= dt
+		if p.ShieldDownTimer <= 0 {
+			p.ShieldDownTimer = 0
+			p.ShieldHealth = p.shieldMax() * shieldRestoreFrac
+			p.ShieldRegenDelay = shieldRegenDelay
+		}
+		return
+	}
+	if p.ShieldRegenDelay > 0 {
+		p.ShieldRegenDelay -= dt
+		return
+	}
+	if max := p.shieldMax(); p.ShieldHealth < max {
+		p.ShieldHealth += p.shieldRegen() * dt
+		if p.ShieldHealth > max {
+			p.ShieldHealth = max
 		}
 	}
-	p.ShieldImpacts = kept
 }
 
 type partSpec struct {
@@ -370,48 +384,17 @@ var partSpecs = map[PartType]partSpec{
 	PartRailgun:            {health: 75, weight: partWeight, color: rl.NewColor(210, 225, 240, 255)},
 	PartRattlesnakeMissile: {health: 75, weight: partWeight, color: rl.NewColor(150, 100, 55, 255)},
 	PartAutoTurret:         {health: 75, weight: partWeight, color: rl.NewColor(80, 200, 160, 255)},
-	PartBattery:            {health: 100, weight: partWeight, color: rl.NewColor(60, 200, 120, 255)},
-	PartCharger:            {health: 75, weight: partWeight, color: rl.NewColor(240, 220, 90, 255)},
 }
 
 const (
+	shieldMaxHealth     float32 = 50
 	shieldRadius                = 2 * cellSize
+	shieldRestoreFrac   float32 = 0.25
+	shieldDownDuration  float32 = 6
+	shieldRegenDelay    float32 = 3
+	shieldRegenRate     float32 = 6
 	shieldFlashDuration float32 = 0.35
 )
-
-// Energy tuning. Every ship stores energy (see Ship.Energy) that recharges over
-// time; firing weapons, thrusting, and shields soaking hits all draw it down. The
-// cockpit provides the base reserve and recharge rate; batteries add capacity and
-// chargers add recharge speed.
-const (
-	cockpitEnergyReserve float32 = 100
-	cockpitEnergyRegen   float32 = 25
-	batteryEnergyReserve float32 = 90
-	chargerEnergyRegen   float32 = 18
-	// energyBrownoutDuration is how long recharge stalls after the reserve is drained
-	// to empty — a beat of downtime for bottoming out (see Ship.spendEnergy).
-	energyBrownoutDuration float32 = 1.0
-)
-
-// energyCost is the energy a single shot from this weapon costs to fire; a mount
-// with less than this in the ship's pool holds fire. The railgun is not listed
-// here — it spends the ship's entire reserve at once (see FireWeapons).
-//
-// The gun rounds are priced so a single PDC — the fastest-firing of them — runs a
-// mild deficit on the cockpit's recharge alone but is comfortably covered by one
-// charger; doubling up on PDCs is what really strains the reserve. The slower
-// auto-turret and slow PDC fire the same round, so they draw less per second and
-// are cheaper to run. Missiles are a burst weapon and priced per shot.
-func (t PartType) energyCost() float32 {
-	switch t {
-	case PartPDC, PartSlowPDC, PartAutoTurret:
-		return 3.0
-	case PartMissileLauncher, PartRattlesnakeMissile:
-		return 18
-	default:
-		return 0
-	}
-}
 
 func NewPart(t PartType, facing Facing) *Part {
 	return NewLeveledPart(t, facing, 1)
@@ -425,6 +408,9 @@ func NewLeveledPart(t PartType, facing Facing, level int) *Part {
 		Health: spec.health,
 		Weight: spec.weight,
 		Level:  clampPartLevel(level),
+	}
+	if t == PartShield {
+		p.ShieldHealth = p.shieldMax()
 	}
 	return p
 }

@@ -492,12 +492,9 @@ func main() {
 			mw := rl.MeasureText(moneyText, 10)
 			rl.DrawText(moneyText, gameWidth-mw-6, 16, 10, rl.Gold)
 			rl.DrawText(hint, 6, gameHeight-14, 10, rl.RayWhite)
-			// While out on a walk, show the astronaut's health as a top-left readout;
-			// while piloting, show the ship's energy reserve there instead.
+			// While out on a walk, show the astronaut's health as a top-left readout.
 			if spacewalking {
 				drawPlayerHealthHUD(player.Health)
-			} else if !ship.Destroyed {
-				drawEnergyHUD(ship)
 			}
 			// Stage countdown: a bar in the top-right that drains as time runs out.
 			drawStageTimer(stageTimer / stageDuration)
@@ -579,40 +576,6 @@ func drawPlayerHealthHUD(health float32) {
 	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, healthColor(frac))
 	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
 	rl.DrawText(fmt.Sprintf("HP %d", int(math.Ceil(float64(health)))), barX+barWidth+4, barY-2, 10, rl.RayWhite)
-}
-
-// drawEnergyHUD draws the ship's energy reserve as a labeled bar in the top-left
-// corner while piloting. The bar brightens to cyan-white when the reserve is full
-// (the railgun's ready-to-fire threshold); otherwise it reads a steady blue. While
-// browned out (reserve just emptied) the empty bar pulses red and reads BROWN-OUT.
-func drawEnergyHUD(ship *Ship) {
-	max := ship.EnergyMax()
-	if max <= 0 {
-		return
-	}
-	frac := clamp01(ship.Energy / max)
-	const barX, barY int32 = 6, 6
-	const barWidth, barHeight int32 = 60, 6
-	fill := rl.NewColor(90, 160, 255, 255)
-	if frac >= railgunChargeFrac {
-		fill = rl.NewColor(180, 230, 255, 255)
-	}
-	bg := rl.NewColor(0, 0, 0, 160)
-	if ship.EnergyBrownout > 0 {
-		// Pulse the empty bar's backdrop red so the dead-power window reads clearly.
-		pulse := uint8(120 + 90*(0.5+0.5*float32(math.Sin(float64(rl.GetTime())*14))))
-		bg = rl.NewColor(150, 30, 20, pulse)
-	}
-	rl.DrawRectangle(barX, barY, barWidth, barHeight, bg)
-	rl.DrawRectangle(barX, barY, int32(float32(barWidth)*frac), barHeight, fill)
-	rl.DrawRectangleLines(barX, barY, barWidth, barHeight, rl.NewColor(255, 255, 255, 120))
-	label := fmt.Sprintf("EN %d", int(ship.Energy))
-	labelColor := rl.RayWhite
-	if ship.EnergyBrownout > 0 {
-		label = "BROWN-OUT"
-		labelColor = rl.NewColor(255, 120, 90, 255)
-	}
-	rl.DrawText(label, barX+barWidth+4, barY-2, 10, labelColor)
 }
 
 // worldBoundColor tints the world boundary — the wall drawn in the field and its

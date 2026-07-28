@@ -99,9 +99,11 @@ func DesignToShip(d shipDesign, pos rl.Vector2) *Ship {
 				part.Modifiers = append(part.Modifiers, m)
 			}
 		}
+		if part.Type == PartShield {
+			part.ShieldHealth = part.shieldMax()
+		}
 		s.AddPart(GridCoord{X: pj.X, Y: pj.Y}, part)
 	}
-	s.Energy = s.EnergyMax()
 	return s
 }
 
