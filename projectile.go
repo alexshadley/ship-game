@@ -60,23 +60,23 @@ const (
 	// A railgun is a heavy hitscan weapon (see PartRailgun). It fires within a very
 	// narrow arc on a slow reload and strikes instantly along a straight line — no
 	// projectile — dealing railgunDamage to the first thing the beam meets within
-	// railgunRange. Firing kicks the shooter back a little (railgunRecoilImpulse)
-	// and shoves the struck body a lot more (railgunImpactImpulse); the two impulses
-	// deliberately don't balance. The white beam lingers railgunBeamDuration seconds
-	// so an instantaneous shot still reads on screen.
-	railgunDamage          = 600.0
+	// railgunRange. Firing kicks the shooter back (railgunRecoilImpulse) and shoves
+	// the struck body by an equal impulse (railgunImpactImpulse). The white beam
+	// lingers railgunBeamDuration seconds so an instantaneous shot still reads on
+	// screen.
+	railgunDamage          = 300.0
 	railgunFireInterval    = 3.5
 	railgunHalfArc         = 0.07 * math.Pi
 	railgunEngagementRange = 2700
 	railgunRange           = 4000.0
 	railgunRecoilImpulse   = 4000.0
-	railgunImpactImpulse   = 22000.0
-	railgunBeamDuration    = 0.12
+	railgunImpactImpulse   = 4000.0
+	railgunBeamDuration    = 0.24
 	// railgunWarmup is how long (seconds) a railgun mount spends charging before it
 	// looses its shot. While it charges its aim is locked and two red telegraph
 	// lines, parallel to the shot, slide together from either side; the shot fires
 	// the instant they touch on the beam line.
-	railgunWarmup = 1.0
+	railgunWarmup = 1.5
 	// railgunTelegraphSpread is how far to each side of the locked beam the two
 	// warm-up lines start (world px) before sliding in to meet it.
 	railgunTelegraphSpread = cellSize * 1.5
