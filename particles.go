@@ -154,6 +154,17 @@ func (ps *ParticleSystem) Update(dt float32) {
 	ps.explosions = liveBlasts
 }
 
+// UpdateParticles advances the particle system as its own frame pass, run after
+// Game.Update. Particles are purely cosmetic — they never feed back into the
+// simulation — so they live outside the gameplay update. They freeze alongside
+// the rest of the world while paused or after game over; Draw still owns
+// rendering them.
+func (g *Game) UpdateParticles(dt float32) {
+	if g.state == StatePlaying && !g.gameOver {
+		g.particles.Update(dt)
+	}
+}
+
 func (ps *ParticleSystem) Draw() {
 	for _, p := range ps.particles {
 		t := p.age / p.lifetime
