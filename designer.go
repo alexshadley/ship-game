@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -12,9 +11,10 @@ import (
 // Designer is the in-app ship editor reached from the pause menu. It reads and
 // writes JSON designs in the ships/ folder: the left panel lists existing ships
 // to load, the center is a grid you paint parts onto, and the right panel picks
-// the part type and facing. It draws directly to the window (not through the
-// game's low-res render texture) and runs its own input, so it owns a full frame
-// via Frame().
+// the part type and facing. It lays out at the logical UI resolution and splits
+// each frame into an input pass (Update) and a render pass (Draw). Opened in shop
+// mode (shop != nil) it becomes the shop; that mode's passes live in
+// shopupdate.go and shopdraw.go.
 type Designer struct {
 	camera    rl.Camera2D
 	ship      *Ship
@@ -71,31 +71,6 @@ func NewDesigner() *Designer {
 	return d
 }
 
-// NewShop opens the designer in shop mode against the live player ship. Money and
-// inventory are shared with the caller (the running game), so purchases and part
-// placements persist after the shop closes. Unlike the plain designer it doesn't
-// touch ship files: it edits ship in place and never saves.
-func NewShop(ship *Ship, money *int, inventory map[PartType]int) *Designer {
-	d := &Designer{
-		camera: rl.Camera2D{
-			Target: rl.NewVector2(0, 0),
-			Offset: rl.NewVector2(dsLeftPanelW+(dsRightPanel-dsLeftPanelW)/2, dsTopBar+(windowHeight-dsTopBar-dsBottomBar)/2),
-			Zoom:   1.6,
-		},
-		selType:   PartBlock,
-		selFacing: FacingUp,
-		ship:      ship,
-		name:      "Your Ship",
-		shop: &ShopState{
-			money:     money,
-			inventory: inventory,
-			offers:    shopOffers(),
-		},
-	}
-	d.setStatus("Buy parts, then place them on your ship", uiTextDim)
-	return d
-}
-
 func (d *Designer) refreshFiles() { d.files = ListShipFiles() }
 
 func (d *Designer) newShip() {
@@ -138,12 +113,12 @@ func (d *Designer) setStatus(msg string, c rl.Color) {
 	d.statusColor = c
 }
 
-// Frame runs one frame of the designer (input + draw). It must be called inside
-// BeginDrawing/EndDrawing. It returns true when the user wants to return to the
-// pause menu.
-func (d *Designer) Frame() bool {
-	exit := false
-
+// Update runs one input frame of the designer (or shop): keyboard shortcuts,
+// zoom, grid editing, and panel button clicks. It mutates state but draws
+// nothing — Draw renders the result afterward off the same layout rects. It
+// returns true when the user wants to leave: the designer's Back returns to the
+// pause menu, and the shop's Embark launches the next round (see updateDesigner).
+func (d *Designer) Update() bool {
 	// Escape leaves the designer. While naming, it cancels the text field instead.
 	// The shop has no Escape exit — its only way out is Embark.
 	if rl.IsKeyPressed(rl.KeyEscape) {
@@ -167,23 +142,32 @@ func (d *Designer) Frame() bool {
 	d.updateZoom()
 	d.updateGridEdit()
 
+	exit := false
+	if d.shop != nil {
+		d.updateShop(&exit)
+	} else {
+		d.updateLeftPanel()
+		d.updateRightPanel(&exit)
+		d.updateNameField()
+	}
+	return exit
+}
+
+// Draw renders the designer (or shop) into the UI texture. It performs no input
+// or state mutation; Update handled that first, so the two passes stay cleanly
+// separated. It must be called inside a BeginTextureMode block.
+func (d *Designer) Draw() {
 	rl.ClearBackground(rl.NewColor(16, 18, 24, 255))
 	d.drawGrid()
-	d.leftPanel()
 	if d.shop != nil {
-		d.shopRightPanel(&exit)
+		d.drawShop()
 	} else {
-		d.rightPanel(&exit)
-	}
-	if d.shop == nil {
+		d.drawLeftPanel()
+		d.drawRightPanel()
 		d.drawNameField()
-	} else {
-		rl.DrawText("Outfitting: "+d.name, dsLeftPanelW+40, 22, 24, uiText)
 	}
 	d.drawHint()
 	d.drawPartTooltip()
-
-	return exit
 }
 
 func (d *Designer) drawPartTooltip() {
@@ -253,35 +237,6 @@ func (d *Designer) updateGridEdit() {
 		d.ship.Parts[c] = NewPart(d.selType, d.selFacing)
 	}
 	if rl.IsMouseButtonPressed(rl.MouseRightButton) {
-		delete(d.ship.Parts, c)
-	}
-}
-
-// updateShopGridEdit is the shop's grid editing: placing a part spends one from
-// inventory and removing it returns it there, so the palette counts stay honest.
-// The cockpit is fixed — it can't be placed (never in inventory) or removed.
-func (d *Designer) updateShopGridEdit(c GridCoord) {
-	inv := d.shop.inventory
-	if rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		if inv[d.selType] <= 0 {
-			d.setStatus("No "+d.selType.String()+" in inventory - buy one first", rl.Red)
-			return
-		}
-		if existing, ok := d.ship.Parts[c]; ok {
-			if existing.Type == PartCockpit {
-				return // never build over the cockpit
-			}
-			inv[existing.Type]++ // the part being replaced goes back to inventory
-		}
-		inv[d.selType]--
-		d.ship.Parts[c] = NewPart(d.selType, d.selFacing)
-	}
-	if rl.IsMouseButtonPressed(rl.MouseRightButton) {
-		existing, ok := d.ship.Parts[c]
-		if !ok || existing.Type == PartCockpit {
-			return
-		}
-		inv[existing.Type]++
 		delete(d.ship.Parts, c)
 	}
 }
@@ -362,150 +317,161 @@ func balanceColor(tl engineThrustLine) rl.Color {
 	return unbalancedColor
 }
 
-// leftPanel draws the ship-file list and handles selecting/creating designs. In
-// shop mode it shows the storefront instead.
-func (d *Designer) leftPanel() {
-	if d.shop != nil {
-		d.shopPanel()
-		return
-	}
-	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
-	rl.DrawText("SHIPS", 20, 20, 28, uiText)
+// Panel layout. The designer and shop are immediate-mode UIs split into an input
+// pass (Update) and a render pass (Draw); these helpers are the single source of
+// each widget's rectangle so both passes agree on where things are. Their
+// arithmetic mirrors the running-y layout the panels draw with.
 
-	newBtn := rl.NewRectangle(16, 60, dsLeftPanelW-32, 40)
-	if uiButtonRect(newBtn, "+ New Ship", 22, false) {
+func dsNewShipRect() rl.Rectangle {
+	return rl.NewRectangle(16, 60, dsLeftPanelW-32, 40)
+}
+
+func dsFileRect(i int) rl.Rectangle {
+	return rl.NewRectangle(16, 112+float32(i)*44, dsLeftPanelW-32, 36)
+}
+
+// dsRightPanelBounds is the x origin and content width shared by every widget in
+// the right panel.
+func dsRightPanelBounds() (x, w float32) {
+	return float32(dsRightPanel + 16), float32(dsRightW - 32)
+}
+
+func dsPartRect(i int) rl.Rectangle {
+	x, w := dsRightPanelBounds()
+	return rl.NewRectangle(x, 60+float32(i)*48, w, 40)
+}
+
+func dsRotRect(tailY float32) rl.Rectangle {
+	x, w := dsRightPanelBounds()
+	return rl.NewRectangle(x, tailY+32, w, 40)
+}
+
+func dsBackRect() rl.Rectangle {
+	x, w := dsRightPanelBounds()
+	return rl.NewRectangle(x, windowHeight-70, w, 40)
+}
+
+func dsSaveRect() rl.Rectangle {
+	x, w := dsRightPanelBounds()
+	return rl.NewRectangle(x, windowHeight-120, w, 40)
+}
+
+func dsEmbarkRect() rl.Rectangle {
+	x, w := dsRightPanelBounds()
+	return rl.NewRectangle(x, windowHeight-124, w, 44)
+}
+
+func dsNameFieldRect() rl.Rectangle {
+	return rl.NewRectangle(dsLeftPanelW+40, 12, 460, 40)
+}
+
+// designerTailY gives the top of the right panel's shared tail (facing selector,
+// validation, balance, action buttons), which sits just below the parts palette.
+// The shop's variant is shopTailY, since its list length varies with what's owned.
+func designerTailY() float32 { return 60 + float32(len(palettePartTypes))*48 + 12 }
+
+// updateLeftPanel handles the designer left panel's clicks: selecting or creating
+// ship files. (The shop replaces this panel with a storefront; see updateShop.)
+func (d *Designer) updateLeftPanel() {
+	if uiButtonClicked(dsNewShipRect()) {
 		d.newShip()
 	}
-
-	y := float32(112)
-	for _, f := range d.files {
-		r := rl.NewRectangle(16, y, dsLeftPanelW-32, 36)
-		selected := strings.TrimSuffix(f, ".json") == d.name
-		if uiButtonRect(r, strings.TrimSuffix(f, ".json"), 20, selected) {
+	for i, f := range d.files {
+		if uiButtonClicked(dsFileRect(i)) {
 			d.load(f)
 		}
-		y += 44
 	}
 }
 
-// shopPanel draws the storefront in the left panel: the money balance up top and
-// the fixed catalog of parts on sale with buy buttons. Owned parts and their sell
-// buttons live in the right panel (see shopRightPanel).
-func (d *Designer) shopPanel() {
+// drawLeftPanel renders the designer's ship-file list. (The shop replaces this
+// panel with a storefront; see drawShop.)
+func (d *Designer) drawLeftPanel() {
 	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
-	rl.DrawText("SHOP", 20, 20, 28, uiText)
-	rl.DrawText(fmt.Sprintf("Money: $%d", *d.shop.money), 20, 56, 24, uiAccent)
-
-	y := float32(100)
-	for i := range d.shop.offers {
-		o := &d.shop.offers[i]
-		r := rl.NewRectangle(16, y, dsLeftPanelW-32, 48)
-		label := fmt.Sprintf("%s  -  $%d", o.Type.String(), o.Price)
-		if uiButtonRect(r, label, 20, false) {
-			if d.shop.buy(i) {
-				d.setStatus("Bought "+o.Type.String(), rl.Lime)
-			} else {
-				d.setStatus("Not enough money for "+o.Type.String(), rl.Red)
-			}
-		}
-		rl.DrawRectangle(24, int32(y+16), 16, 16, partSpecs[o.Type].color)
-		y += 56
+	rl.DrawText("SHIPS", 20, 20, 28, uiText)
+	uiButtonRect(dsNewShipRect(), "+ New Ship", 22, false)
+	for i, f := range d.files {
+		name := strings.TrimSuffix(f, ".json")
+		uiButtonRect(dsFileRect(i), name, 20, name == d.name)
 	}
 }
 
-func (d *Designer) rightPanel(exit *bool) {
-	rl.DrawRectangle(dsRightPanel, 0, dsRightW, windowHeight, uiPanel)
-	x := float32(dsRightPanel + 16)
-	w := float32(dsRightW - 32)
+// updateRightPanel handles the designer's parts palette clicks, then the shared
+// tail.
+func (d *Designer) updateRightPanel(exit *bool) {
+	for i, t := range palettePartTypes {
+		if uiButtonClicked(dsPartRect(i)) {
+			d.selType = t
+		}
+	}
+	d.updateRightPanelTail(exit, designerTailY())
+}
 
+// drawRightPanel renders the designer's fixed parts palette, then the shared tail.
+func (d *Designer) drawRightPanel() {
+	x, w := dsRightPanelBounds()
+	rl.DrawRectangle(dsRightPanel, 0, dsRightW, windowHeight, uiPanel)
 	rl.DrawText("PARTS", int32(x), 20, 28, uiText)
-	y := float32(60)
-	for _, t := range palettePartTypes {
-		r := rl.NewRectangle(x, y, w, 40)
-		if uiButtonRect(r, t.String(), 20, d.selType == t) {
-			d.selType = t
-		}
+	for i, t := range palettePartTypes {
+		r := dsPartRect(i)
+		uiButtonRect(r, t.String(), 20, d.selType == t)
 		// Part color swatch on the left edge of the button.
-		rl.DrawRectangle(int32(x+8), int32(y+12), 16, 16, partSpecs[t].color)
-		y += 48
+		rl.DrawRectangle(int32(x+8), int32(r.Y+12), 16, 16, partSpecs[t].color)
 	}
-
-	d.rightPanelTail(exit, x, w, y+12)
+	d.drawRightPanelTail(x, w, designerTailY())
 }
 
-// shopRightPanel is the shop's right panel. Unlike the designer's fixed parts
-// palette (which always lists every part type), it shows only the part types the
-// player currently owns: each row is a selectable palette entry for placing the
-// part on the ship, and carries its own Sell button. Buying more parts is done in
-// the left storefront panel.
-func (d *Designer) shopRightPanel(exit *bool) {
-	rl.DrawRectangle(dsRightPanel, 0, dsRightW, windowHeight, uiPanel)
-	x := float32(dsRightPanel + 16)
-	w := float32(dsRightW - 32)
-
-	rl.DrawText("INVENTORY", int32(x), 20, 28, uiText)
-	y := float32(60)
-	owned := false
-	for _, t := range palettePartTypes {
-		// The cockpit is fixed to the ship and never held in inventory, and part
-		// types the player owns none of aren't shown at all.
-		if t == PartCockpit || d.shop.inventory[t] <= 0 {
-			continue
-		}
-		owned = true
-		selBtn := rl.NewRectangle(x, y, w-96, 40)
-		label := fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t])
-		if uiButtonRect(selBtn, label, 20, d.selType == t) {
-			d.selType = t
-		}
-		// Part color swatch on the left edge of the select button.
-		rl.DrawRectangle(int32(x+8), int32(y+12), 16, 16, partSpecs[t].color)
-		// Sell one back for half its catalog value, crediting money.
-		sellBtn := rl.NewRectangle(x+w-88, y, 88, 40)
-		if uiButtonRect(sellBtn, fmt.Sprintf("Sell $%d", sellPrice(t)), 18, false) {
-			if d.shop.sell(t) {
-				d.setStatus(fmt.Sprintf("Sold %s for $%d", t.String(), sellPrice(t)), rl.Lime)
-			}
-		}
-		y += 48
-	}
-	if !owned {
-		rl.DrawText("(buy parts on the left)", int32(x), int32(y), 18, uiTextDim)
-		y += 30
-	}
-
-	d.rightPanelTail(exit, x, w, y+12)
-}
-
-// rightPanelTail draws the shared lower half of the right panel used by both the
-// designer and the shop: the facing selector, live validation, the balance
-// readout, and the bottom action buttons. y is the top of the facing section.
-func (d *Designer) rightPanelTail(exit *bool, x, w, y float32) {
-	rl.DrawText("FACING", int32(x), int32(y), 24, uiText)
-	y += 32
-	rotBtn := rl.NewRectangle(x, y, w, 40)
-	if uiButtonRect(rotBtn, "Facing: "+d.selFacing.String()+"  (R)", 20, false) {
+// updateRightPanelTail handles the clicks in the shared lower half of the right
+// panel (used by both designer and shop): the facing toggle and the bottom action
+// buttons. y is the top of the facing section.
+func (d *Designer) updateRightPanelTail(exit *bool, y float32) {
+	if uiButtonClicked(dsRotRect(y)) {
 		d.selFacing = (d.selFacing + 1) % 4
 	}
-	y += 60
+	// The shop has no back button or Save; its only exit is Embark. The designer
+	// gets Back (to the pause menu) and Save.
+	if d.shop == nil {
+		if uiButtonClicked(dsBackRect()) {
+			*exit = true
+		}
+		if uiButtonClicked(dsSaveRect()) {
+			d.save()
+		}
+	} else if uiButtonClicked(dsEmbarkRect()) {
+		// Everything must be fitted to the ship or sold first — you can't set out
+		// carrying loose parts in inventory.
+		if n := d.shop.inventoryCount(); n > 0 {
+			d.setStatus("Fit or sell your inventory before embarking", rl.Red)
+		} else {
+			*exit = true
+		}
+	}
+}
+
+// drawRightPanelTail renders the shared lower half of the right panel: the facing
+// selector, live validation, the balance readout, and the bottom action buttons.
+// y is the top of the facing section.
+func (d *Designer) drawRightPanelTail(x, w, y float32) {
+	rl.DrawText("FACING", int32(x), int32(y), 24, uiText)
+	uiButtonRect(dsRotRect(y), "Facing: "+d.selFacing.String()+"  (R)", 20, false)
 
 	// Live validation feedback.
+	vy := y + 92
 	if err := d.ship.Validate(); err != nil {
-		drawWrappedText("Invalid: "+err.Error(), int32(x), int32(y), int(w), 18, rl.NewColor(255, 120, 120, 255))
+		drawWrappedText("Invalid: "+err.Error(), int32(x), int32(vy), int(w), 18, rl.NewColor(255, 120, 120, 255))
 	} else {
-		rl.DrawText("Valid design", int32(x), int32(y), 20, rl.Lime)
+		rl.DrawText("Valid design", int32(x), int32(vy), 20, rl.Lime)
 	}
-	y += 44
 
 	// Balance readout: the same center-of-mass + thrust-line concept as the grid
 	// overlay, with a plain-language status.
+	by := vy + 44
 	tl := engineThrustAbout(d.ship.Parts, nil, GridCoord{}, d.ship.CenterOfMass())
 	col := balanceColor(tl)
-	rl.DrawText("BALANCE", int32(x), int32(y), 24, uiText)
-	y += 34
-	drawCenterOfMassMarker(rl.NewVector2(x+11, y+9), col)
-	rl.DrawText("Center of mass + thrust", int32(x+30), int32(y), 18, uiText)
-	y += 30
+	rl.DrawText("BALANCE", int32(x), int32(by), 24, uiText)
+	by += 34
+	drawCenterOfMassMarker(rl.NewVector2(x+11, by+9), col)
+	rl.DrawText("Center of mass + thrust", int32(x+30), int32(by), 18, uiText)
+	by += 30
 	status := "No engines"
 	if tl.ok {
 		if tl.offset <= engineStraightTolerance {
@@ -514,42 +480,34 @@ func (d *Designer) rightPanelTail(exit *bool, x, w, y float32) {
 			status = "Off-axis - thrust spins it"
 		}
 	}
-	rl.DrawText(status, int32(x), int32(y), 20, col)
+	rl.DrawText(status, int32(x), int32(by), 20, col)
 
 	// Actions pinned to the bottom. The shop has no back button; its only exit is
-	// the Embark action below (or Esc).
+	// the Embark action below. The designer gets Back (to the pause menu) and Save.
 	if d.shop == nil {
-		backBtn := rl.NewRectangle(x, windowHeight-70, w, 40)
-		if uiButtonRect(backBtn, "Back to Menu (Esc)", 20, false) {
-			*exit = true
-		}
-	}
-	// The shop edits the live ship in place; there's nothing to save to a file.
-	// Its primary action is Embark, which launches the next round.
-	if d.shop == nil {
-		saveBtn := rl.NewRectangle(x, windowHeight-120, w, 40)
-		if uiButtonRect(saveBtn, "Save", 22, false) {
-			d.save()
-		}
+		uiButtonRect(dsBackRect(), "Back to Menu (Esc)", 20, false)
+		uiButtonRect(dsSaveRect(), "Save", 22, false)
 	} else {
-		embarkBtn := rl.NewRectangle(x, windowHeight-124, w, 44)
-		if uiButtonRect(embarkBtn, "EMBARK  ▶  Next Round", 22, true) {
-			// Everything must be fitted to the ship or sold first — you can't set out
-			// carrying loose parts in inventory.
-			if n := d.shop.inventoryCount(); n > 0 {
-				d.setStatus("Fit or sell your inventory before embarking", rl.Red)
-			} else {
-				*exit = true
-			}
-		}
+		uiButtonRect(dsEmbarkRect(), "EMBARK  ▶  Next Round", 22, true)
 	}
 	if d.status != "" {
 		drawWrappedText(d.status, int32(x), windowHeight-165, int(w), 16, d.statusColor)
 	}
 }
 
+// updateNameField toggles the name text field on click (designer only; the shop
+// shows a fixed title instead).
+func (d *Designer) updateNameField() {
+	r := dsNameFieldRect()
+	if mouseIn(r) && rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		d.editingName = true
+	} else if d.editingName && rl.IsMouseButtonPressed(rl.MouseLeftButton) && !mouseIn(r) {
+		d.editingName = false
+	}
+}
+
 func (d *Designer) drawNameField() {
-	r := rl.NewRectangle(dsLeftPanelW+40, 12, 460, 40)
+	r := dsNameFieldRect()
 	fill := uiButton
 	if d.editingName {
 		fill = uiButtonHot
@@ -564,12 +522,6 @@ func (d *Designer) drawNameField() {
 	}
 	rl.DrawText("Name:", int32(r.X-70), int32(r.Y+10), 20, uiTextDim)
 	rl.DrawText(label, int32(r.X+10), int32(r.Y+10), 22, uiText)
-
-	if mouseIn(r) && rl.IsMouseButtonPressed(rl.MouseLeftButton) {
-		d.editingName = true
-	} else if d.editingName && rl.IsMouseButtonPressed(rl.MouseLeftButton) && !mouseIn(r) {
-		d.editingName = false
-	}
 }
 
 func (d *Designer) drawHint() {

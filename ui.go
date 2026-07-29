@@ -22,13 +22,20 @@ func mouseIn(r rl.Rectangle) bool {
 	return rl.CheckCollisionPointRec(uiMouse(), r)
 }
 
-// uiButtonRect draws a labeled button and reports whether it was clicked this
-// frame. When selected is true it's drawn with the accent outline to read as the
-// active choice.
-func uiButtonRect(r rl.Rectangle, label string, fontSize int32, selected bool) bool {
-	hot := mouseIn(r)
+// uiButtonClicked reports whether a button occupying r was clicked this frame. It
+// is the input-pass counterpart to uiButtonRect's drawing: split the two so a
+// screen can hit-test its buttons during Update and render them during Draw, both
+// off the same layout rects.
+func uiButtonClicked(r rl.Rectangle) bool {
+	return mouseIn(r) && rl.IsMouseButtonPressed(rl.MouseLeftButton)
+}
+
+// uiButtonRect draws a labeled button. When selected is true it's drawn with the
+// accent outline to read as the active choice. Click detection lives in
+// uiButtonClicked; this is the draw pass only.
+func uiButtonRect(r rl.Rectangle, label string, fontSize int32, selected bool) {
 	fill := uiButton
-	if hot {
+	if mouseIn(r) {
 		fill = uiButtonHot
 	}
 	rl.DrawRectangleRec(r, fill)
@@ -37,5 +44,4 @@ func uiButtonRect(r rl.Rectangle, label string, fontSize int32, selected bool) b
 	}
 	tw := rl.MeasureText(label, fontSize)
 	rl.DrawText(label, int32(r.X+(r.Width-float32(tw))/2), int32(r.Y+(r.Height-float32(fontSize))/2), fontSize, uiText)
-	return hot && rl.IsMouseButtonPressed(rl.MouseLeftButton)
 }

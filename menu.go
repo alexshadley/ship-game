@@ -54,7 +54,7 @@ func onOff(on bool) string {
 func (m *Menu) Update() MenuAction {
 	items := m.items()
 	for i := range items {
-		if mouseIn(menuButtonRect(i)) && rl.IsMouseButtonPressed(rl.MouseLeftButton) {
+		if uiButtonClicked(menuButtonRect(i)) {
 			return items[i].action
 		}
 	}

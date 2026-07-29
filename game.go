@@ -65,10 +65,6 @@ type Game struct {
 	money     int
 	inventory map[PartType]int
 
-	// designerDone is set by the designer/shop's immediate-mode Frame() during the
-	// draw pass; the next Update picks it up to apply the resulting state change.
-	designerDone bool
-
 	// quit is raised by the pause menu's Quit action; main's loop breaks on it.
 	quit bool
 }

@@ -30,26 +30,11 @@ func (g *Game) startRound() {
 	g.state = StatePlaying
 }
 
-// Update advances the game state by one frame: input, physics, projectiles,
-// enemies, timers, camera, and state transitions. It performs no drawing; Draw
+// Update advances the game state by one frame. It dispatches to the per-mode
+// update for the current state — piloting, the pause menu, or the designer/shop —
+// so the loop runs only the logic that mode needs. It performs no drawing; Draw
 // renders the resulting state afterward.
 func (g *Game) Update(dt float32) {
-	// Apply any state transition the designer/shop requested on the previous
-	// frame. The designer is an immediate-mode UI whose Frame() both reads input
-	// and renders in one pass (run from Draw), so its result is picked up here at
-	// the top of the next update rather than mid-draw.
-	if g.designerDone {
-		g.designerDone = false
-		if g.state == StateShop {
-			// The shop's only exit is Embark, which launches the next round; that
-			// heals and recentres the refitted ship (its rebuilt body picks up the
-			// shop's edits).
-			g.startRound()
-		} else {
-			g.state = StateMenu
-		}
-	}
-
 	// F11 toggles fullscreen at any time, returning to the windowed size.
 	if rl.IsKeyPressed(rl.KeyF11) {
 		toggleFullscreen(g.winW, g.winH)
@@ -57,47 +42,81 @@ func (g *Game) Update(dt float32) {
 
 	switch g.state {
 	case StatePlaying:
-		if rl.IsKeyPressed(rl.KeyEscape) {
-			g.state = StateMenu
-		}
+		g.updatePlaying(dt)
 	case StateMenu:
-		// Feed live debug state in so the toggle rows render their ON/OFF label.
-		g.menu.GodMode = g.godMode
-		g.menu.AIDebug = g.aiDebug
-		switch g.menu.Update() {
-		case MenuResume:
-			g.state = StatePlaying
-		case MenuOpenDesigner:
-			g.designer = NewDesigner()
-			g.state = StateDesigner
-		case MenuToggleGodMode:
-			g.godMode = !g.godMode
-		case MenuToggleAIDebug:
-			g.aiDebug = !g.aiDebug
-		case MenuQuit:
-			g.quit = true
-			return
-		}
-		if g.state == StateMenu && rl.IsKeyPressed(rl.KeyEscape) {
-			g.state = StatePlaying
-		}
+		g.updateMenu()
+	case StateDesigner, StateShop:
+		g.updateDesigner()
+	}
+}
+
+// updateMenu runs the pause menu: it feeds live debug state into the toggle rows,
+// applies the chosen action, and lets Escape resume the game.
+func (g *Game) updateMenu() {
+	// Feed live debug state in so the toggle rows render their ON/OFF label.
+	g.menu.GodMode = g.godMode
+	g.menu.AIDebug = g.aiDebug
+	switch g.menu.Update() {
+	case MenuResume:
+		g.state = StatePlaying
+	case MenuOpenDesigner:
+		g.designer = NewDesigner()
+		g.state = StateDesigner
+	case MenuToggleGodMode:
+		g.godMode = !g.godMode
+	case MenuToggleAIDebug:
+		g.aiDebug = !g.aiDebug
+	case MenuQuit:
+		g.quit = true
+		return
+	}
+	if g.state == StateMenu && rl.IsKeyPressed(rl.KeyEscape) {
+		g.state = StatePlaying
+	}
+}
+
+// updateDesigner runs one input frame of the designer or shop and applies the
+// resulting state change when it signals it's done. The designer/shop is now
+// cleanly split into an input pass (Update) and a render pass (Draw), so its
+// result is picked up here immediately rather than deferred to the next frame.
+func (g *Game) updateDesigner() {
+	if !g.designer.Update() {
+		return
+	}
+	if g.state == StateShop {
+		// The shop's only exit is Embark, which launches the next round; that heals
+		// and recentres the refitted ship (its rebuilt body picks up the shop's edits).
+		g.startRound()
+	} else {
+		g.state = StateMenu
+	}
+}
+
+// updatePlaying advances the live simulation by one frame: input, physics,
+// projectiles, enemies, timers, and the camera. Escape opens the pause menu and
+// the stage clock, on expiry, opens the shop — both hand off to another mode and
+// return early.
+func (g *Game) updatePlaying(dt float32) {
+	if rl.IsKeyPressed(rl.KeyEscape) {
+		g.state = StateMenu
+		return
 	}
 
 	// Count down the stage clock while piloting. When it empties the round is
 	// over: head to the shop to refit before embarking on the next round.
-	if g.state == StatePlaying && !g.gameOver {
+	if !g.gameOver {
 		g.stageTimer -= dt
 		if g.stageTimer <= 0 {
 			g.stageTimer = 0
 			g.designer = NewShop(g.ship, &g.money, g.inventory)
 			g.state = StateShop
+			return
 		}
 	}
 
 	// Once the astronaut is gone the world stops simulating; only the render pass
-	// keeps running so the GAME OVER banner stays on screen. (When the timer just
-	// expired the state is now StateShop, so this is skipped.)
-	if g.state == StatePlaying && !g.gameOver {
+	// keeps running so the GAME OVER banner stays on screen.
+	if !g.gameOver {
 		// Toggle debug god mode (player ship invincible) with G.
 		if rl.IsKeyPressed(rl.KeyG) {
 			g.godMode = !g.godMode
