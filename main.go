@@ -148,15 +148,17 @@ func main() {
 	g.physics.godMode = &g.godMode
 	g.physics.SeedLooseParts(3)
 
-	// Each frame: advance the game state, then render it. Keeping the two passes
-	// separate and ordered (update before draw) is the whole point of this split —
-	// all state mutation lives in Update, all drawing in Draw.
+	// Each frame: advance the game state, advance the cosmetic particles, then
+	// render it. Keeping the passes separate and ordered is the whole point of this
+	// split — all gameplay state mutation lives in Update, particle animation (which
+	// can't affect gameplay) rides in its own pass after it, and all drawing in Draw.
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 		g.Update(dt)
 		if g.quit {
 			return
 		}
+		g.UpdateParticles(dt)
 		g.Draw()
 	}
 }
