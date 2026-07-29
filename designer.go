@@ -116,14 +116,15 @@ func (d *Designer) setStatus(msg string, c rl.Color) {
 // Update runs one input frame of the designer (or shop): keyboard shortcuts,
 // zoom, grid editing, and panel button clicks. It mutates state but draws
 // nothing — Draw renders the result afterward off the same layout rects. It
-// returns true when the user wants to leave (back to the pause menu, or, in the
-// shop, to embark; the shop's embark flag distinguishes the two).
+// returns true when the user wants to leave: the designer's Back returns to the
+// pause menu, and the shop's Embark launches the next round (see updateDesigner).
 func (d *Designer) Update() bool {
 	// Escape leaves the designer. While naming, it cancels the text field instead.
+	// The shop has no Escape exit — its only way out is Embark.
 	if rl.IsKeyPressed(rl.KeyEscape) {
 		if d.editingName {
 			d.editingName = false
-		} else {
+		} else if d.shop == nil {
 			return true
 		}
 	}
@@ -426,12 +427,12 @@ func (d *Designer) updateRightPanelTail(exit *bool, y float32) {
 	if uiButtonClicked(dsRotRect(y)) {
 		d.selFacing = (d.selFacing + 1) % 4
 	}
-	if uiButtonClicked(dsBackRect()) {
-		*exit = true
-	}
-	// The shop edits the live ship in place; there's nothing to save to a file.
-	// Its primary action is Embark, which launches the next round.
+	// The shop has no back button or Save; its only exit is Embark. The designer
+	// gets Back (to the pause menu) and Save.
 	if d.shop == nil {
+		if uiButtonClicked(dsBackRect()) {
+			*exit = true
+		}
 		if uiButtonClicked(dsSaveRect()) {
 			d.save()
 		}
@@ -441,7 +442,6 @@ func (d *Designer) updateRightPanelTail(exit *bool, y float32) {
 		if n := d.shop.inventoryCount(); n > 0 {
 			d.setStatus("Fit or sell your inventory before embarking", rl.Red)
 		} else {
-			d.shop.embark = true
 			*exit = true
 		}
 	}
@@ -482,13 +482,10 @@ func (d *Designer) drawRightPanelTail(x, w, y float32) {
 	}
 	rl.DrawText(status, int32(x), int32(by), 20, col)
 
-	// Actions pinned to the bottom.
-	backLabel := "Back to Menu (Esc)"
-	if d.shop != nil {
-		backLabel = "Leave Shop (Esc)"
-	}
-	uiButtonRect(dsBackRect(), backLabel, 20, false)
+	// Actions pinned to the bottom. The shop has no back button; its only exit is
+	// the Embark action below. The designer gets Back (to the pause menu) and Save.
 	if d.shop == nil {
+		uiButtonRect(dsBackRect(), "Back to Menu (Esc)", 20, false)
 		uiButtonRect(dsSaveRect(), "Save", 22, false)
 	} else {
 		uiButtonRect(dsEmbarkRect(), "EMBARK  ▶  Next Round", 22, true)

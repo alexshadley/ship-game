@@ -93,7 +93,7 @@ func (g *Game) drawWorld() {
 		pr.Draw()
 	}
 	// Railgun beams draw over the ships as well — a fading white streak.
-	g.physics.DrawBeams()
+	drawBeams(g)
 	if g.spacewalking {
 		// The repair beam draws under the astronaut so it reads as coming from
 		// the suit rather than over it.
@@ -148,6 +148,46 @@ func (g *Game) drawWorld() {
 	}
 	if g.gameOver {
 		drawGameOver()
+	}
+}
+
+// DrawBeams renders the lingering railgun beams as white lines that fade out over
+// their lifetime, plus the red warm-up telegraph for any railgun still charging.
+// Called from the main render pass in world space.
+func drawBeams(g *Game) {
+	p := g.physics
+	// Warm-up telegraphs first, so a fired beam draws over the last frame of its
+	// own charge. Each is two red lines parallel to the locked shot, offset to
+	// either side and sliding together onto the beam line as the charge completes.
+	for _, c := range p.charges {
+		prog := c.Progress
+		if prog < 0 {
+			prog = 0
+		} else if prog > 1 {
+			prog = 1
+		}
+		// Endpoints of the beam line itself: the full reach the shot will travel.
+		far := rl.NewVector2(c.Origin.X+c.Dir.X*railgunRange, c.Origin.Y+c.Dir.Y*railgunRange)
+		// Perpendicular to the shot; the two lines sit at ±offset and close to 0.
+		perpX, perpY := -c.Dir.Y, c.Dir.X
+		offset := railgunTelegraphSpread * (1 - prog)
+		// Brighten as the two lines close in so the imminent shot reads clearly.
+		red := rl.NewColor(255, 40, 40, uint8(120+135*prog))
+		for _, s := range []float32{offset, -offset} {
+			a := rl.NewVector2(c.Origin.X+perpX*s, c.Origin.Y+perpY*s)
+			b := rl.NewVector2(far.X+perpX*s, far.Y+perpY*s)
+			rl.DrawLineEx(a, b, 3, red)
+		}
+	}
+
+	for _, b := range p.beams {
+		frac := b.TTL / railgunBeamDuration
+		if frac < 0 {
+			frac = 0
+		}
+		// A thick, straight, solid white line that fades out over its lifetime.
+		white := rl.NewColor(255, 255, 255, uint8(255*frac))
+		rl.DrawLineEx(b.Start, b.End, 6, white)
 	}
 }
 

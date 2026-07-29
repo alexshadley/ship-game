@@ -6,97 +6,6 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-// Game holds all of the running game's state. It was previously a tangle of
-// locals in main(); collecting it here lets the frame be split into two ordered
-// passes — Update mutates state, Draw renders it — with main() just sequencing
-// the two each frame.
-type Game struct {
-	// Window and render targets. winW/winH are the windowed size, restored when
-	// leaving fullscreen. target holds the game world at gameWidth×gameHeight;
-	// uiTarget holds the menu/designer at the logical UI resolution. src/uiSrc are
-	// the (vertically flipped) source rects used to blit each to the window.
-	winW, winH int32
-	target     rl.RenderTexture2D
-	uiTarget   rl.RenderTexture2D
-	src        rl.Rectangle
-	uiSrc      rl.Rectangle
-
-	ship   *Ship
-	camera rl.Camera2D
-
-	asteroids []*Asteroid
-	physics   *Physics
-	particles *ParticleSystem
-
-	player       Player
-	scavenger    Scavenger
-	repair       RepairTool
-	spacewalking bool
-
-	// User-controlled piloting zoom, nudged by the scroll wheel. Scroll changes
-	// snap in instantly; only entering/exiting the ship eases the zoom smoothly
-	// between the piloting and spacewalk framing (tracked by zoomEasing).
-	pilotZoom        float32
-	prevSpacewalking bool
-	zoomEasing       bool
-
-	// gameOver freezes the simulation once the astronaut dies (or the cockpit is
-	// lost while aboard); only the render pass keeps running so the banner stays up.
-	gameOver bool
-
-	// stageTimer counts down from stageDuration while piloting; reaching zero ends
-	// the round and drops the player into the shop.
-	stageTimer float32
-
-	godMode     bool
-	aiDebug     bool
-	autoWeapons bool
-
-	enemies         []*Ship
-	enemyAIs        []*EnemyAI
-	enemySpawnTimer float32
-
-	projectiles []*Projectile
-
-	state    GameState
-	menu     Menu
-	designer *Designer
-
-	// money and inventory are shared (by pointer / by reference) with the shop, so
-	// buying and fitting parts there carries back into the running game.
-	money     int
-	inventory map[PartType]int
-
-	// quit is raised by the pause menu's Quit action; main's loop breaks on it.
-	quit bool
-}
-
-// playerThreats lists the world points an enemy PDC should prefer over the
-// player's hull each frame: the player's in-flight missiles and, while
-// spacewalking, the exposed astronaut. Enemies retask their guns to swat these
-// down once they drift into PDC range.
-func (g *Game) playerThreats() []rl.Vector2 {
-	var pts []rl.Vector2
-	for _, pr := range g.projectiles {
-		if pr.Kind == projectileMissile && pr.Owner == g.ship {
-			pts = append(pts, pr.Position)
-		}
-	}
-	if g.spacewalking && !g.player.Dead() {
-		pts = append(pts, g.player.Position)
-	}
-	return pts
-}
-
-// spawnEnemy sends in another enemy from beyond the edge of the view and wires it
-// into the physics sim and the live enemy list.
-func (g *Game) spawnEnemy() {
-	e, ai := SpawnEnemy(g.ship, g.playerThreats)
-	g.physics.AddShip(e, ai)
-	g.enemies = append(g.enemies, e)
-	g.enemyAIs = append(g.enemyAIs, ai)
-}
-
 // startRound resets the game for a fresh round: the previous round's enemies and
 // projectiles are cleared, the refitted ship is healed to full and set down
 // upright and at rest in the middle of the field, a new enemy warps in, and the
@@ -153,9 +62,6 @@ func (g *Game) updateMenu() {
 	case MenuOpenDesigner:
 		g.designer = NewDesigner()
 		g.state = StateDesigner
-	case MenuOpenShop:
-		g.designer = NewShop(g.ship, &g.money, g.inventory)
-		g.state = StateShop
 	case MenuToggleGodMode:
 		g.godMode = !g.godMode
 	case MenuToggleAIDebug:
@@ -178,16 +84,9 @@ func (g *Game) updateDesigner() {
 		return
 	}
 	if g.state == StateShop {
-		if g.designer.shop.embark {
-			// Embark launches the next round, which heals and recentres the
-			// refitted ship (its rebuilt body picks up the shop's edits).
-			g.startRound()
-		} else {
-			// Backed out (Esc / Leave) — the shop edited the live ship's parts, so
-			// regenerate its physics body, then return to the pause menu.
-			g.physics.RebuildShipBody(g.ship)
-			g.state = StateMenu
-		}
+		// The shop's only exit is Embark, which launches the next round; that heals
+		// and recentres the refitted ship (its rebuilt body picks up the shop's edits).
+		g.startRound()
 	} else {
 		g.state = StateMenu
 	}
@@ -257,7 +156,6 @@ func (g *Game) updatePlaying(dt float32) {
 		}
 
 		g.projectiles = append(g.projectiles, g.physics.Update(float64(dt), g.particles)...)
-		g.particles.Update(dt)
 
 		// physics.Update drops destroyed ships from the simulation; drop them from
 		// our enemy list too so they stop drawing and vanish from the minimap.
