@@ -145,10 +145,11 @@ func (d *Designer) Frame() bool {
 	exit := false
 
 	// Escape leaves the designer. While naming, it cancels the text field instead.
+	// The shop has no Escape exit — its only way out is Embark.
 	if rl.IsKeyPressed(rl.KeyEscape) {
 		if d.editingName {
 			d.editingName = false
-		} else {
+		} else if d.shop == nil {
 			return true
 		}
 	}
@@ -515,14 +516,13 @@ func (d *Designer) rightPanelTail(exit *bool, x, w, y float32) {
 	}
 	rl.DrawText(status, int32(x), int32(y), 20, col)
 
-	// Actions pinned to the bottom.
-	backLabel := "Back to Menu (Esc)"
-	if d.shop != nil {
-		backLabel = "Leave Shop (Esc)"
-	}
-	backBtn := rl.NewRectangle(x, windowHeight-70, w, 40)
-	if uiButtonRect(backBtn, backLabel, 20, false) {
-		*exit = true
+	// Actions pinned to the bottom. The shop has no back button; its only exit is
+	// the Embark action below (or Esc).
+	if d.shop == nil {
+		backBtn := rl.NewRectangle(x, windowHeight-70, w, 40)
+		if uiButtonRect(backBtn, "Back to Menu (Esc)", 20, false) {
+			*exit = true
+		}
 	}
 	// The shop edits the live ship in place; there's nothing to save to a file.
 	// Its primary action is Embark, which launches the next round.
@@ -539,7 +539,6 @@ func (d *Designer) rightPanelTail(exit *bool, x, w, y float32) {
 			if n := d.shop.inventoryCount(); n > 0 {
 				d.setStatus("Fit or sell your inventory before embarking", rl.Red)
 			} else {
-				d.shop.embark = true
 				*exit = true
 			}
 		}

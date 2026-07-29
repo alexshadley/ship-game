@@ -41,16 +41,10 @@ func (g *Game) Update(dt float32) {
 	if g.designerDone {
 		g.designerDone = false
 		if g.state == StateShop {
-			if g.designer.shop.embark {
-				// Embark launches the next round, which heals and recentres the
-				// refitted ship (its rebuilt body picks up the shop's edits).
-				g.startRound()
-			} else {
-				// Backed out (Esc / Leave) — the shop edited the live ship's parts,
-				// so regenerate its physics body, then return to the pause menu.
-				g.physics.RebuildShipBody(g.ship)
-				g.state = StateMenu
-			}
+			// The shop's only exit is Embark, which launches the next round; that
+			// heals and recentres the refitted ship (its rebuilt body picks up the
+			// shop's edits).
+			g.startRound()
 		} else {
 			g.state = StateMenu
 		}
@@ -76,9 +70,6 @@ func (g *Game) Update(dt float32) {
 		case MenuOpenDesigner:
 			g.designer = NewDesigner()
 			g.state = StateDesigner
-		case MenuOpenShop:
-			g.designer = NewShop(g.ship, &g.money, g.inventory)
-			g.state = StateShop
 		case MenuToggleGodMode:
 			g.godMode = !g.godMode
 		case MenuToggleAIDebug:
