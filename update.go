@@ -241,7 +241,6 @@ func (g *Game) Update(dt float32) {
 		}
 
 		g.projectiles = append(g.projectiles, g.physics.Update(float64(dt), g.particles)...)
-		g.particles.Update(dt)
 
 		// physics.Update drops destroyed ships from the simulation; drop them from
 		// our enemy list too so they stop drawing and vanish from the minimap.
