@@ -251,9 +251,6 @@ func main() {
 			case MenuOpenDesigner:
 				designer = NewDesigner()
 				state = StateDesigner
-			case MenuOpenShop:
-				designer = NewShop(ship, &money, inventory)
-				state = StateShop
 			case MenuToggleGodMode:
 				godMode = !godMode
 			case MenuToggleAIDebug:
@@ -546,16 +543,10 @@ func main() {
 
 		if designerDone {
 			if state == StateShop {
-				if designer.shop.embark {
-					// Embark launches the next round, which heals and recentres the
-					// refitted ship (its rebuilt body picks up the shop's edits).
-					startRound()
-				} else {
-					// Backed out (Esc / Leave) — the shop edited the live ship's parts,
-					// so regenerate its physics body, then return to the pause menu.
-					physics.RebuildShipBody(ship)
-					state = StateMenu
-				}
+				// The shop's only exit is Embark, which launches the next round; that
+				// heals and recentres the refitted ship (its rebuilt body picks up the
+				// shop's edits).
+				startRound()
 			} else {
 				state = StateMenu
 			}
