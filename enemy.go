@@ -100,6 +100,32 @@ func SpawnEnemy(target *Ship, threats func() []rl.Vector2) (*Ship, *EnemyAI) {
 	return enemy, NewEnemyAI(enemy, target, threats)
 }
 
+// spawnEnemy sends in another enemy from beyond the edge of the view and wires it
+// into the physics sim and the live enemy list.
+func (g *Game) spawnEnemy() {
+	e, ai := SpawnEnemy(g.ship, g.playerThreats)
+	g.physics.AddShip(e, ai)
+	g.enemies = append(g.enemies, e)
+	g.enemyAIs = append(g.enemyAIs, ai)
+}
+
+// playerThreats lists the world points an enemy PDC should prefer over the
+// player's hull each frame: the player's in-flight missiles and, while
+// spacewalking, the exposed astronaut. Enemies retask their guns to swat these
+// down once they drift into PDC range.
+func (g *Game) playerThreats() []rl.Vector2 {
+	var pts []rl.Vector2
+	for _, pr := range g.projectiles {
+		if pr.Kind == projectileMissile && pr.Owner == g.ship {
+			pts = append(pts, pr.Position)
+		}
+	}
+	if g.spacewalking && !g.player.Dead() {
+		pts = append(pts, g.player.Position)
+	}
+	return pts
+}
+
 // enemyRoster lists the ship designs (files in ships/) that spawn as enemies.
 // Add more entries here to widen the rotation; a random one is chosen per spawn.
 var enemyRoster = []string{"raider.json", "l_ship.json", "lancelot.json", "fatboy.json", "railrotor2.json", "lorge.json", "ouch.json", "shieldy.json"}
