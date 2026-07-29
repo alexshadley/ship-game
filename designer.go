@@ -169,7 +169,11 @@ func (d *Designer) Frame() bool {
 	rl.ClearBackground(rl.NewColor(16, 18, 24, 255))
 	d.drawGrid()
 	d.leftPanel()
-	d.rightPanel(&exit)
+	if d.shop != nil {
+		d.shopRightPanel(&exit)
+	} else {
+		d.rightPanel(&exit)
+	}
 	if d.shop == nil {
 		d.drawNameField()
 	} else {
@@ -383,8 +387,9 @@ func (d *Designer) leftPanel() {
 	}
 }
 
-// shopPanel draws the storefront in the left panel: the money balance up top, the
-// fixed catalog of parts on sale with buy buttons, and the current inventory below.
+// shopPanel draws the storefront in the left panel: the money balance up top and
+// the fixed catalog of parts on sale with buy buttons. Owned parts and their sell
+// buttons live in the right panel (see shopRightPanel).
 func (d *Designer) shopPanel() {
 	rl.DrawRectangle(0, 0, dsLeftPanelW, windowHeight, uiPanel)
 	rl.DrawText("SHOP", 20, 20, 28, uiText)
@@ -405,31 +410,6 @@ func (d *Designer) shopPanel() {
 		rl.DrawRectangle(24, int32(y+16), 16, 16, partSpecs[o.Type].color)
 		y += 56
 	}
-
-	y += 12
-	rl.DrawText("INVENTORY", 20, int32(y), 24, uiText)
-	y += 34
-	empty := true
-	for _, t := range palettePartTypes {
-		if t == PartCockpit || d.shop.inventory[t] <= 0 {
-			continue
-		}
-		empty = false
-		rl.DrawRectangle(24, int32(y+3), 14, 14, partSpecs[t].color)
-		rl.DrawText(fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t]), 46, int32(y), 20, uiText)
-		// Sell one back for half its catalog value, crediting money. On its own row
-		// so long part names never collide with the button.
-		sellBtn := rl.NewRectangle(46, y+24, 120, 28)
-		if uiButtonRect(sellBtn, fmt.Sprintf("Sell 1  ($%d)", sellPrice(t)), 16, false) {
-			if d.shop.sell(t) {
-				d.setStatus(fmt.Sprintf("Sold %s for $%d", t.String(), sellPrice(t)), rl.Lime)
-			}
-		}
-		y += 60
-	}
-	if empty {
-		rl.DrawText("(empty)", 24, int32(y), 18, uiTextDim)
-	}
 }
 
 func (d *Designer) rightPanel(exit *bool) {
@@ -441,16 +421,7 @@ func (d *Designer) rightPanel(exit *bool) {
 	y := float32(60)
 	for _, t := range palettePartTypes {
 		r := rl.NewRectangle(x, y, w, 40)
-		label := t.String()
-		if d.shop != nil {
-			// In the shop the palette is bounded by what the player owns; the count
-			// rides on the button and the cockpit (which can't be placed) is skipped.
-			if t == PartCockpit {
-				continue
-			}
-			label = fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t])
-		}
-		if uiButtonRect(r, label, 20, d.selType == t) {
+		if uiButtonRect(r, t.String(), 20, d.selType == t) {
 			d.selType = t
 		}
 		// Part color swatch on the left edge of the button.
@@ -458,7 +429,57 @@ func (d *Designer) rightPanel(exit *bool) {
 		y += 48
 	}
 
-	y += 12
+	d.rightPanelTail(exit, x, w, y+12)
+}
+
+// shopRightPanel is the shop's right panel. Unlike the designer's fixed parts
+// palette (which always lists every part type), it shows only the part types the
+// player currently owns: each row is a selectable palette entry for placing the
+// part on the ship, and carries its own Sell button. Buying more parts is done in
+// the left storefront panel.
+func (d *Designer) shopRightPanel(exit *bool) {
+	rl.DrawRectangle(dsRightPanel, 0, dsRightW, windowHeight, uiPanel)
+	x := float32(dsRightPanel + 16)
+	w := float32(dsRightW - 32)
+
+	rl.DrawText("INVENTORY", int32(x), 20, 28, uiText)
+	y := float32(60)
+	owned := false
+	for _, t := range palettePartTypes {
+		// The cockpit is fixed to the ship and never held in inventory, and part
+		// types the player owns none of aren't shown at all.
+		if t == PartCockpit || d.shop.inventory[t] <= 0 {
+			continue
+		}
+		owned = true
+		selBtn := rl.NewRectangle(x, y, w-96, 40)
+		label := fmt.Sprintf("%s  x%d", t.String(), d.shop.inventory[t])
+		if uiButtonRect(selBtn, label, 20, d.selType == t) {
+			d.selType = t
+		}
+		// Part color swatch on the left edge of the select button.
+		rl.DrawRectangle(int32(x+8), int32(y+12), 16, 16, partSpecs[t].color)
+		// Sell one back for half its catalog value, crediting money.
+		sellBtn := rl.NewRectangle(x+w-88, y, 88, 40)
+		if uiButtonRect(sellBtn, fmt.Sprintf("Sell $%d", sellPrice(t)), 18, false) {
+			if d.shop.sell(t) {
+				d.setStatus(fmt.Sprintf("Sold %s for $%d", t.String(), sellPrice(t)), rl.Lime)
+			}
+		}
+		y += 48
+	}
+	if !owned {
+		rl.DrawText("(buy parts on the left)", int32(x), int32(y), 18, uiTextDim)
+		y += 30
+	}
+
+	d.rightPanelTail(exit, x, w, y+12)
+}
+
+// rightPanelTail draws the shared lower half of the right panel used by both the
+// designer and the shop: the facing selector, live validation, the balance
+// readout, and the bottom action buttons. y is the top of the facing section.
+func (d *Designer) rightPanelTail(exit *bool, x, w, y float32) {
 	rl.DrawText("FACING", int32(x), int32(y), 24, uiText)
 	y += 32
 	rotBtn := rl.NewRectangle(x, y, w, 40)
